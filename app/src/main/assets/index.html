@@ -41,6 +41,16 @@ h2{font-family:var(--display);font-weight:700;font-size:1rem;margin:0;display:fl
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .stat:active{border-color:var(--accent)}
 .stat em{display:block;font-style:normal;color:var(--accent);font-size:.72rem;font-weight:700;margin-top:6px}
+.goals h2{margin:0}
+.gnav{display:flex;align-items:center;gap:6px}
+.gnav b{min-width:7.5em;text-align:center;font-size:.92rem}
+.goal{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.goal input[type=checkbox]{width:22px;height:22px;accent-color:var(--solo);flex:none}
+.goal span{flex:1;min-width:0;overflow-wrap:anywhere}
+.goal.done span{text-decoration:line-through;color:var(--muted)}
+.goal .x{border:none;background:none;color:var(--muted);font-size:1.2rem;cursor:pointer;padding:2px 6px}
+.gadd{display:flex;gap:8px}
+.gadd input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px}
 .sheet{position:fixed;inset:0;background:var(--bg);z-index:50;overflow:auto;padding:16px;box-sizing:border-box;display:none}
 .sheet.open{display:block}
 .sheet header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
@@ -83,6 +93,7 @@ button:focus-visible,a:focus-visible,textarea:focus-visible,summary:focus-visibl
 details summary{cursor:pointer;color:var(--muted);font-size:.85rem}
 .empty{color:var(--muted);font-size:.85rem;padding:10px;border:1px dashed var(--line);border-radius:10px}
 body{margin:0}
+[hidden]{display:none!important}
 </style></head><body>
 
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="shTitle">
@@ -115,6 +126,19 @@ body{margin:0}
     <button type="button" class="stat" data-view="hechos"><b id="sWeek">0</b><span>cumplidos esta semana</span><em>Ver ›</em></button>
     <button type="button" class="stat" data-view="todos"><b id="sPct">0 %</b><span>de la lista ya resuelta</span><div class="bar"><i id="sBar"></i></div><em>Ver todo ›</em></button>
   </div>
+
+  <section class="panel goals" id="goalsBox">
+    <div class="row" style="justify-content:space-between">
+      <h2>Objetivos del día</h2>
+      <div class="gnav"><button type="button" class="btn small" id="gPrev" aria-label="Día anterior">‹</button><b id="gDay">Hoy</b><button type="button" class="btn small" id="gNext" aria-label="Día siguiente">›</button></div>
+    </div>
+    <div class="row" style="justify-content:space-between"><span class="count" id="gCount"></span><button type="button" class="btn small" id="gToday" hidden>Volver a hoy</button></div>
+    <div class="bar" style="margin-top:0"><i id="gBar"></i></div>
+    <div id="gList" style="display:flex;flex-direction:column;gap:8px"></div>
+    <form class="gadd" id="gForm"><input id="gInput" placeholder="Nuevo objetivo para este día" autocomplete="off" maxlength="200"><button class="btn primary" type="submit">Agregar</button></form>
+    <div class="row"><button type="button" class="btn small" id="gMove" hidden>Pasar pendientes al día siguiente</button></div>
+    <p class="hint" style="margin:0;color:var(--muted);font-size:.8rem">También por voz: decí “objetivo, terminar el presupuesto” o “objetivos para mañana, ir al banco, llamar a Juan”.</p>
+  </section>
 
   <section class="panel" id="wakeBox">
     <div class="row" style="justify-content:space-between">
@@ -276,8 +300,14 @@ function prefsBlock(){ return prefs ? `\nPreferencias de la persona (respetalas 
 let extracting=false;
 async function extract(){
   if(extracting) return; setErr("");
-  const text=$("transcript").value.trim();
+  let text=$("transcript").value.trim();
   if(!text){ setErr("No hay texto para revisar."); return; }
+  const gx=extractGoals(text);
+  if(gx.count){
+    text=gx.rest; setStatus(`Agregué ${gx.count} objetivo${gx.count>1?"s":""} del día.`);
+    if(!text){ $("transcript").value=""; saveDraft(); setTimeout(idle,3000); return; }
+    $("transcript").value=text; saveDraft();
+  }
   const gratis = !(window.Android && Android.hasKey());
   if(gratis){
     const list=localExtract(text);
@@ -394,6 +424,63 @@ function localExtract(text){
   }
   return out;
 }
+
+/* ---------- Objetivos del día ---------- */
+let goals={}, gDate=ymd(new Date());
+try{ goals=JSON.parse(localStorage.getItem("objetivos")||"{}")||{}; }catch(e){ goals={}; }
+function saveGoals(){ try{ localStorage.setItem("objetivos",JSON.stringify(goals)); }catch(e){ setErr("No pude guardar los objetivos."); } }
+function addGoal(fecha,t){ t=t.trim().replace(/^[,:\s]+|[,.\s]+$/g,""); if(!t) return false; t=t.charAt(0).toUpperCase()+t.slice(1);
+  (goals[fecha]=goals[fecha]||[]).push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),t:t.slice(0,200),hecho:false}); return true; }
+function shiftDay(iso,n){ const [y,m,d]=iso.split("-").map(Number); return ymd(new Date(y,m-1,d+n)); }
+function dayLabel(iso){ const hoy=ymd(new Date());
+  if(iso===hoy) return "Hoy"; if(iso===shiftDay(hoy,1)) return "Mañana"; if(iso===shiftDay(hoy,-1)) return "Ayer";
+  const [y,m,d]=iso.split("-").map(Number);
+  const s=new Intl.DateTimeFormat("es-AR",{weekday:"short",day:"numeric",month:"short",timeZone:"UTC"}).format(new Date(Date.UTC(y,m-1,d)));
+  return s.charAt(0).toUpperCase()+s.slice(1); }
+function renderGoals(){
+  const list=goals[gDate]||[], done=list.filter(g=>g.hecho).length;
+  $("gDay").textContent=dayLabel(gDate);
+  $("gToday").hidden = gDate===ymd(new Date());
+  $("gCount").textContent = list.length ? `${done} de ${list.length} cumplidos`+(done===list.length?" ✔":"") : "Sin objetivos para este día";
+  $("gBar").style.width = list.length ? Math.round(100*done/list.length)+"%" : "0";
+  $("gMove").hidden = !(list.length && done<list.length);
+  const box=$("gList"); box.replaceChildren();
+  list.forEach(g=>{
+    const row=el("label","goal"+(g.hecho?" done":""));
+    const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=g.hecho;
+    cb.onchange=()=>{ g.hecho=cb.checked; saveGoals(); renderGoals(); };
+    const x=el("button","x","\u00D7"); x.type="button"; x.setAttribute("aria-label","Quitar objetivo");
+    x.onclick=e=>{ e.preventDefault(); goals[gDate]=list.filter(o=>o!==g); if(!goals[gDate].length) delete goals[gDate]; saveGoals(); renderGoals(); };
+    row.append(cb, el("span",null,g.t), x); box.append(row);
+  });
+}
+$("gPrev").onclick=()=>{ gDate=shiftDay(gDate,-1); renderGoals(); };
+$("gNext").onclick=()=>{ gDate=shiftDay(gDate,1); renderGoals(); };
+$("gToday").onclick=()=>{ gDate=ymd(new Date()); renderGoals(); };
+$("gForm").onsubmit=e=>{ e.preventDefault(); if(addGoal(gDate,$("gInput").value)){ saveGoals(); $("gInput").value=""; renderGoals(); } $("gInput").focus(); };
+$("gMove").onclick=()=>{ const list=goals[gDate]||[], next=shiftDay(gDate,1); const pend=list.filter(g=>!g.hecho);
+  pend.forEach(g=>addGoal(next,g.t)); goals[gDate]=list.filter(g=>g.hecho); if(!goals[gDate].length) delete goals[gDate];
+  saveGoals(); gDate=next; renderGoals(); setStatus(`Pasé ${pend.length} objetivo${pend.length>1?"s":""} a ${dayLabel(next).toLowerCase()}.`); };
+// Por voz: "objetivo(s) [para mañana/el lunes], A, B" — los siguientes pedazos sin "tengo que/recordatorio" también cuentan
+function goalDay(f){ const now=new Date();
+  if(/\bpasado manana\b/.test(f)) return shiftDay(ymd(now),2);
+  if(/\bmanana\b/.test(f)) return shiftDay(ymd(now),1);
+  for(let i=0;i<7;i++) if(new RegExp("\\b"+DIAS[i]+"\\b").test(f)){ let k=(i-now.getDay()+7)%7; if(k===0) k=7; return shiftDay(ymd(now),k); }
+  return ymd(now); }
+function extractGoals(text){
+  const segs=text.split(/[.!?\n]+/).map(x=>x.trim()).filter(Boolean), rest=[]; let count=0, cur=null, first=null;
+  const STOP=/^(y )?(recordatorio|recordame|recorda|anota|tengo que|hay que|quedamos|quede|turno|reunion|cita|te |le )/;
+  for(const seg of segs){
+    const f=sinTildes(seg).replace(/^(si|dale|bueno|ok)[, ]+/,"");
+    const m=f.match(/^(?:otro |nuevo )?objetivos?(?: (?:del dia|de hoy|laborales?|de trabajo))?(?: (?:para )?(?:hoy|manana|pasado manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)))?(?: (?:del dia|laborales?))?[,:\s]*/);
+    if(m){ cur=goalDay(f.slice(0,m[0].length)); first=first||cur; const body=seg.slice(m[0].length); body.split(/,|\botro objetivo\b/i).forEach(t=>{ if(addGoal(cur,t)) count++; }); continue; }
+    if(cur && !STOP.test(f)){ seg.split(",").forEach(t=>{ if(addGoal(cur,t)) count++; }); continue; }
+    cur=null; rest.push(seg);
+  }
+  if(count){ saveGoals(); if(first) gDate=first; renderGoals(); }
+  return {count, rest:rest.join(". ")};
+}
+renderGoals();
 
 function str(v,max){ return (typeof v==="string" && v.trim() && v!=="null") ? v.trim().slice(0,max) : null; }
 async function addItem(c){
