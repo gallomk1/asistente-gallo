@@ -1,0 +1,456 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Asistente Gallo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: tablero de agente. Arriba: botón de manejo y números; medio: entrada; abajo: tres columnas Él solo / Juntos / Yo que se apilan en el celular. */
+:root{
+  --bg:#f1f3f6; --panel:#ffffff; --fg:#131722; --muted:#5b6475; --line:#d8dde6;
+  --accent:#4a6cf7; --accent-ink:#ffffff; --live:#d63a2f;
+  --solo:#1f8a57; --juntos:#d98a00; --yo:#7a8394;
+  --solo-bg:#e6f4ec; --juntos-bg:#fbf1dd; --yo-bg:#eef0f3;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1118; --panel:#171b25; --fg:#eef1f7; --muted:#97a0b2; --line:#283043;
+  --accent:#6f8cff; --accent-ink:#0b1030; --live:#ff5a4c;
+  --solo:#46c98a; --juntos:#f2b03c; --yo:#9aa3b5;
+  --solo-bg:#132a20; --juntos-bg:#2d2312; --yo-bg:#1d222d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1118; --panel:#171b25; --fg:#eef1f7; --muted:#97a0b2; --line:#283043;
+  --accent:#6f8cff; --accent-ink:#0b1030; --live:#ff5a4c;
+  --solo:#46c98a; --juntos:#f2b03c; --yo:#9aa3b5;
+  --solo-bg:#132a20; --juntos-bg:#2d2312; --yo-bg:#1d222d; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.45}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px;display:flex;flex-direction:column;gap:18px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+h1{font-family:var(--display);font-weight:800;font-size:1.8rem;letter-spacing:-.01em;margin:0}
+h2{font-family:var(--display);font-weight:700;font-size:1rem;margin:0;display:flex;align-items:center;gap:8px}
+.sub{color:var(--muted);margin:2px 0 0;font-size:.9rem}
+.status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.85rem}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--solo);flex:none}
+.dot.live{background:var(--live);animation:pulse 1.2s infinite}
+.dot.busy{background:var(--juntos)}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
+.top{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.top{grid-template-columns:repeat(3,minmax(0,1fr))}.drive{grid-column:1/-1}}
+.drive{border:none;border-radius:16px;background:var(--fg);color:var(--bg);font-family:var(--display);font-weight:800;font-size:1.35rem;padding:22px 14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center}
+.drive small{font-family:var(--body);font-weight:500;font-size:.82rem;opacity:.75}
+.drive.on{background:var(--live);color:#fff}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.stat b{display:block;font-family:var(--display);font-size:1.7rem;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:.78rem}
+.bar{height:4px;background:var(--line);border-radius:4px;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--solo);width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.live-text{color:var(--muted);font-size:.88rem;min-height:1.2em}
+textarea{width:100%;box-sizing:border-box;min-height:84px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--fg);font:inherit;padding:12px;resize:vertical}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:10px;padding:10px 14px;font:600 .9rem var(--body);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.small{padding:6px 10px;font-size:.8rem;border-radius:8px}
+.btn:disabled{opacity:.5;cursor:default}
+button:focus-visible,a:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.err{color:var(--live);font-size:.88rem}
+.cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
+@media (max-width:760px){.cols{grid-template-columns:minmax(0,1fr)}}
+.col{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.col p.hint{margin:0;color:var(--muted);font-size:.8rem}
+.count{color:var(--muted);font-weight:500;font-family:var(--body);font-size:.8rem}
+.sw{width:9px;height:9px;border-radius:50%}
+.card{border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px;border:1px solid transparent}
+.card.solo{background:var(--solo-bg)} .card.juntos{background:var(--juntos-bg)} .card.yo{background:var(--yo-bg)}
+.card.done{opacity:.6}
+.what{font-weight:600}
+.card.done .what{text-decoration:line-through}
+.meta{display:flex;flex-wrap:wrap;gap:6px;font-size:.78rem;color:var(--muted)}
+.pill{border-radius:999px;padding:1px 8px;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;align-self:flex-start}
+.pill.pend{background:var(--line);color:var(--muted)}
+.pill.espera{background:var(--juntos);color:#1d1400}
+.pill.hecho{background:var(--solo);color:#fff}
+.quote{color:var(--muted);font-size:.8rem;font-style:italic}
+.result{white-space:pre-wrap;font-size:.85rem;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:16em;overflow:auto}
+details summary{cursor:pointer;color:var(--muted);font-size:.85rem}
+.empty{color:var(--muted);font-size:.85rem;padding:10px;border:1px dashed var(--line);border-radius:10px}
+body{margin:0}
+</style></head><body>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Asistente Gallo</h1>
+      <p class="sub" id="today"></p>
+    </div>
+    <div class="status" aria-live="polite"><span class="dot" id="dot"></span><span id="statusText">Listo</span></div>
+  </header>
+
+  <section class="panel" id="updBox" hidden>
+    <h2>Hay una versión nueva</h2>
+    <p style="margin:0;font-size:.9rem;white-space:pre-wrap" id="updNotes"></p>
+    <div class="row"><button class="btn primary" id="updBtn" type="button">Actualizar</button><span class="count" id="updMsg"></span></div>
+  </section>
+
+  <div class="top">
+    <button class="drive" id="driveBtn" type="button"><span id="driveLabel">Empezar a anotar</span><small id="driveHint">Podés apagar la pantalla</small></button>
+    <div class="stat"><b id="sPend">0</b><span>compromisos pendientes</span></div>
+    <div class="stat"><b id="sWeek">0</b><span>cumplidos esta semana</span></div>
+    <div class="stat"><b id="sPct">0 %</b><span>de la lista ya resuelta</span><div class="bar"><i id="sBar"></i></div></div>
+  </div>
+
+  <section class="panel" id="wakeBox">
+    <div class="row" style="justify-content:space-between">
+      <h2>Palabra clave</h2>
+      <button class="btn small" id="wakeToggle" type="button">Activar</button>
+    </div>
+    <p style="margin:0;color:var(--muted);font-size:.85rem" id="wakeHelp"></p>
+    <div class="row">
+      <input id="kwInput" type="text" autocomplete="off" maxlength="30" style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
+      <button class="btn small" id="kwSave" type="button">Cambiar palabra</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="live-text" id="partial"></div>
+    <textarea id="transcript" placeholder="Lo que se habla aparece acá. También podés escribir: &quot;Anotá que el jueves le mando el presupuesto a Marcos&quot;."></textarea>
+    <div class="row">
+      <button class="btn" id="extractBtn" type="button">Apuntar</button>
+      <button class="btn primary" id="doAllBtn" type="button">Hazlo</button>
+      <button class="btn" id="clearBtn" type="button">Borrar texto</button>
+    </div>
+    <div class="err" id="err" hidden></div>
+    <details id="prefsBox">
+      <summary>Mis preferencias (el agente las lee siempre)</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <textarea id="prefs" placeholder="Ej.: Hablame de vos. Mensajes cortos y amables. A mi socio se le escribe por WhatsApp. Nunca mandes nada sin que yo lo vea."></textarea>
+        <div class="row"><button class="btn small" id="savePrefs" type="button">Guardar preferencias</button><span class="count" id="prefsMsg"></span></div>
+      </div>
+    </details>
+  </section>
+
+  <div class="cols">
+    <section class="col"><h2><span class="sw" style="background:var(--solo)"></span>Él solo <span class="count" id="cSolo"></span></h2><p class="hint">Lo hace el agente sin vos: armar una lista, un resumen, un presupuesto borrador.</p><div id="lSolo" class="list"></div></section>
+    <section class="col"><h2><span class="sw" style="background:var(--juntos)"></span>Juntos <span class="count" id="cJuntos"></span></h2><p class="hint">Él lo prepara y vos das el último paso: mandar el mensaje, agendar.</p><div id="lJuntos" class="list"></div></section>
+    <section class="col"><h2><span class="sw" style="background:var(--yo)"></span>Yo <span class="count" id="cYo"></span></h2><p class="hint">Solo lo podés hacer vos: llamar, ir, pagar. Te queda el recordatorio.</p><div id="lYo" class="list"></div></section>
+  </div>
+  <section class="panel" id="keyBox">
+    <h2>Ajustes</h2>
+    <p class="hint" style="margin:0;color:var(--muted);font-size:.85rem">La app usa tu clave de la API de Claude (la sacás en console.anthropic.com, sección API Keys). Queda guardada solo en este celular.</p>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="Pegá tu clave acá (empieza con sk-ant-)" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
+    <div class="row"><button class="btn small" id="saveKey" type="button">Guardar clave</button><span class="count" id="keyMsg"></span></div>
+    <div class="row"><span class="count" id="verTxt"></span><button class="btn small" id="checkUpd" type="button">Buscar actualización</button><span class="count" id="checkMsg"></span></div>
+  </section>
+</div>
+
+<script>
+// Puente con la app de Android: reemplaza las funciones de la versión web.
+(function(){
+  let seq=0; const waits={};
+  window.__askDone=(id,ok,text)=>{ const w=waits[id]; if(!w) return; delete waits[id]; ok?w.res(text):w.rej({code:"error",message:text}); };
+  function ask(prompt){ return new Promise((res,rej)=>{ const id=++seq; waits[id]={res,rej}; Android.ask(id, typeof prompt==="string"?prompt:JSON.stringify(prompt)); }); }
+  const sample=async (p)=>({text: await ask(p)});
+  sample.json=async (p)=>{ const t=await ask(p+"\n\nRespondé solo con el JSON, sin texto antes ni después."); const a=t.indexOf("{"), b=t.lastIndexOf("}"); if(a<0||b<a) throw {code:"error",message:"Claude no devolvió una lista válida. Probá de nuevo."}; return JSON.parse(t.slice(a,b+1)); };
+  window.__sample=sample;
+  window.__native=(start)=>new Promise((res,rej)=>{ const id=++seq; waits[id]={res,rej}; start(id); });
+
+  // Dictado: lo hace el servicio del celular; acá solo se consulta.
+  const finals=[], partials=[], states=[]; let was=false;
+  window.__dict={
+    start(){ Android.startListening(); return Promise.resolve(); },
+    stop(){ Android.stopListening(); return new Promise(r=>setTimeout(()=>{ poll(); r(); },1200)); },
+    onFinal(f){finals.push(f)}, onPartial(f){partials.push(f)}, onState(f){states.push(f)}
+  };
+  function poll(){
+    const t=Android.takeNew(); if(t) finals.forEach(f=>f({text:(document.getElementById("transcript").value?" ":"")+t}));
+    const p=Android.partial(); partials.forEach(f=>f({text:p}));
+    const on=Android.isListening();
+    if(on!==was){ was=on; states.forEach(f=>f(on?{state:"listening"}:{state:"idle",reason:"stopped"})); }
+    const e=Android.takeError(); if(e) setErr(e);
+    if(Android.takeProcess()){ setTimeout(()=>{ if(document.getElementById("transcript").value.trim()) extract(); },300); }
+    if(typeof renderWake==="function") renderWake();
+  }
+  setInterval(poll,1000);
+  document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") poll(); });
+
+  // Guardado en el celular
+  function load(){ try{ return JSON.parse(localStorage.getItem("items")||"{}"); }catch(e){ return {}; } }
+  function save(m){ try{ localStorage.setItem("items",JSON.stringify(m)); }catch(e){} emit(); }
+  let subs=[];
+  function emit(){ const m=load(); const docs=Object.keys(m).map(id=>({id, data:()=>m[id]})); subs.forEach(f=>f({docs})); }
+  window.__col={
+    doc(id){ return {
+      set(d){ const m=load(); m[id]=d; save(m); return Promise.resolve(); },
+      update(p){ const m=load(); m[id]=Object.assign(m[id]||{},p); save(m); return Promise.resolve(); },
+      delete(){ const m=load(); delete m[id]; save(m); return Promise.resolve(); } }; },
+    onSnapshot(f){ subs.push(f); setTimeout(emit,0); return ()=>{}; }
+  };
+  navigator.clipboard && (navigator.clipboard.writeText=(t)=>{ Android.copy(t); return Promise.resolve(); });
+})();
+</script>
+<script>
+const $ = id => document.getElementById(id);
+const TZ = "America/Argentina/Buenos_Aires";
+let dict=null, sample=null, col=null, prefDoc=null, wake=null, listening=false, busy=0;
+let items=[], prefs="";
+
+$("today").textContent = new Intl.DateTimeFormat("es-AR",{timeZone:TZ,weekday:"long",day:"numeric",month:"long"}).format(new Date());
+function setErr(m){ const e=$("err"); e.textContent=m||""; e.hidden=!m; }
+function setStatus(t, kind){ $("statusText").textContent=t; $("dot").className="dot"+(kind?" "+kind:""); }
+function idle(){ if(listening || busy) return; if(window.Android && Android.isStandby()) setStatus("Esperando la palabra \u201c"+Android.getKeyword()+"\u201d","live"); else setStatus("Listo"); }
+
+try{ $("transcript").value = localStorage.getItem("draft") || ""; }catch(e){}
+$("transcript").addEventListener("input", saveDraft);
+function saveDraft(){ try{ localStorage.setItem("draft", $("transcript").value); }catch(e){} }
+
+function renderDrive(){
+  $("driveBtn").classList.toggle("on", listening);
+  $("driveLabel").textContent = listening ? "Listo, procesar" : "Empezar a anotar";
+  $("driveHint").textContent = listening ? "Anotando. Podés apagar la pantalla." : "Podés apagar la pantalla";
+}
+async function keepAwake(on){
+  try{ if(on && "wakeLock" in navigator){ wake=await navigator.wakeLock.request("screen"); } else if(!on && wake){ await wake.release(); wake=null; } }catch(e){}
+}
+const reasons={
+  hidden:"Se apagó la pantalla o cambiaste de app, así que dejó de escuchar. Tocá el botón para seguir.",
+  time_limit:"Pasó una hora escuchando. Tocá el botón para seguir.",
+  not_granted:"No hay permiso para el micrófono. Podés escribir los compromisos a mano.",
+  unavailable:"El micrófono no está disponible acá. Abrí esta página en Chrome, no en la app de Claude.",
+  rate_limited:"El micrófono está ocupado. Probá de nuevo en un momento.",
+  upstream_error:"Falló el micrófono o el reconocimiento de voz. Probá de nuevo.",
+  dismissed:"No se dio permiso al micrófono. Tocá de nuevo para que lo pida."
+};
+
+$("driveBtn").addEventListener("click", () => {
+  setErr("");
+  if(!dict){ setErr("El micrófono no está disponible en esta vista. Abrí la página en Chrome en tu Android. Mientras tanto podés escribir."); return; }
+  if(listening){ dict.stop(); return; }
+  dict.start({language:"es"}).catch(e=>{ if(e && e.code!=="stopped") setErr(reasons[e.code]||"No pude empezar a escuchar."); });
+  keepAwake(true);
+});
+function appendFinal(text){ const t=$("transcript"); t.value = t.value ? t.value+text : text.replace(/^\s+/,""); t.scrollTop=t.scrollHeight; saveDraft(); }
+$("clearBtn").addEventListener("click", ()=>{ $("transcript").value=""; saveDraft(); });
+$("extractBtn").addEventListener("click", extract);
+$("doAllBtn").addEventListener("click", async ()=>{
+  if($("transcript").value.trim()) await extract();
+  const todo=items.filter(i=>!i.hecho && !i.resultado && i.tipo!=="yo");
+  if(!todo.length){ setStatus("No hay nada pendiente que el agente pueda hacer."); setTimeout(idle,3000); return; }
+  for(const it of todo) await doIt(it);
+});
+$("savePrefs").addEventListener("click", async ()=>{
+  prefs=$("prefs").value.trim().slice(0,2000);
+  try{ if(prefDoc) await prefDoc.set({texto:prefs}); else localStorage.setItem("prefs",prefs); $("prefsMsg").textContent="Guardadas"; }catch(e){ $("prefsMsg").textContent="No se pudieron guardar"; }
+});
+
+function nowBA(){ return new Intl.DateTimeFormat("es-AR",{timeZone:TZ,weekday:"long",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}).format(new Date()); }
+function prefsBlock(){ return prefs ? `\nPreferencias de la persona (respetalas siempre):\n"""${prefs}"""\n` : ""; }
+
+let extracting=false;
+async function extract(){
+  if(extracting) return; setErr("");
+  const text=$("transcript").value.trim();
+  if(!text){ setErr("No hay texto para revisar."); return; }
+  if(!sample){ setErr("No puedo consultar a Claude desde esta vista."); return; }
+  extracting=true; busy++; $("extractBtn").disabled=true; setStatus("Buscando compromisos…","busy");
+  const prompt=`Sos el agente personal de alguien de Argentina que conversa mientras maneja o está ocupado y después se olvida de lo que acordó.
+Fecha y hora actual en Buenos Aires: ${nowBA()}.${prefsBlock()}
+Abajo hay una transcripción (puede tener errores de reconocimiento y mezclar voces) o una nota escrita. Encontrá TODOS los compromisos, tareas, promesas, turnos o reuniones que la persona aceptó o quedó en hacer, aunque solo haya dicho "dale", "sí", "listo", "te lo mando". Incluí lo que pidió anotar ("anotá que...", "recordame...").
+No inventes nada que no esté en el texto.
+Clasificá cada uno en "tipo":
+- "solo": el agente lo puede resolver entero escribiendo texto (armar una lista, un resumen, un borrador de presupuesto, buscar ideas).
+- "juntos": el agente lo prepara y la persona da el último paso (mandar un mensaje o mail a alguien, confirmar un turno, agendar una reunión).
+- "yo": solo lo puede hacer la persona (llamar, ir a un lugar, pagar, entregar algo físico).
+Respondé SOLO un JSON:
+{"compromisos":[{"que":"acción concreta y corta, en infinitivo","tipo":"solo|juntos|yo","con_quien":"nombre o null","fecha":"YYYY-MM-DD o null","hora":"HH:MM o null","detalle":"contexto útil en una frase o null","cita":"frase textual corta que lo respalda"}]}
+Resolvé fechas relativas con la fecha actual. Si no hay compromisos devolvé {"compromisos":[]}.
+
+TEXTO:
+"""${text}"""`;
+  try{
+    const res=await sample.json(prompt,{cache:false});
+    const list=(res && Array.isArray(res.compromisos)) ? res.compromisos : [];
+    for(const c of list) await addItem(c);
+    setStatus(list.length ? `Apunté ${list.length} compromiso${list.length>1?"s":""}.` : "No encontré compromisos.");
+    if(list.length){ $("transcript").value=""; saveDraft(); }
+  }catch(e){ setErr(e && e.code==="rate_limited" ? "Demasiadas consultas seguidas. Esperá un minuto." : "No pude revisar el texto. Probá de nuevo."); }
+  finally{ extracting=false; busy--; $("extractBtn").disabled=false; setTimeout(idle,3000); }
+}
+
+function str(v,max){ return (typeof v==="string" && v.trim() && v!=="null") ? v.trim().slice(0,max) : null; }
+async function addItem(c){
+  const it={
+    que:str(c.que,200)||"Compromiso sin descripción",
+    tipo:["solo","juntos","yo"].includes(c.tipo)?c.tipo:"yo",
+    con_quien:str(c.con_quien,80),
+    fecha:/^\d{4}-\d{2}-\d{2}$/.test(c.fecha||"")?c.fecha:null,
+    hora:/^\d{2}:\d{2}$/.test(c.hora||"")?c.hora:null,
+    detalle:str(c.detalle,300), cita:str(c.cita,300),
+    resultado:null, mensaje:null, hecho:false, hechoEn:null, creado:Date.now()
+  };
+  if(col) await col.doc("c"+it.creado+Math.random().toString(36).slice(2,6)).set(it);
+  else { items.unshift({id:"l"+it.creado+Math.random(),...it}); render(); }
+}
+
+async function doIt(it){
+  if(!sample){ setErr("No puedo consultar a Claude desde esta vista."); return; }
+  busy++; setStatus("Trabajando en: "+it.que,"busy");
+  const base=`Sos el agente personal de alguien de Argentina. Fecha actual en Buenos Aires: ${nowBA()}.${prefsBlock()}
+Compromiso: ${it.que}${it.con_quien?" (con "+it.con_quien+")":""}${it.fecha?" para el "+it.fecha+(it.hora?" "+it.hora:""):""}.
+Contexto: ${it.detalle||"sin más datos"}. Frase original: ${it.cita||"-"}.
+No inventes datos que no tenés: si falta algo, dejá un [espacio para completar].`;
+  try{
+    if(it.tipo==="solo"){
+      const r=await sample(base+`\nResolvelo vos: entregá el resultado terminado, en español rioplatense, listo para usar, sin introducción.`,{cache:false});
+      await update(it,{resultado:(r.text||"").slice(0,6000), hecho:true, hechoEn:Date.now()});
+    } else {
+      const r=await sample.json(base+`\nPreparalo para que la persona solo tenga que dar el último paso. Si hay que avisar o escribirle a alguien, redactá un mensaje corto de WhatsApp, cálido y natural, en voseo. Respondé SOLO JSON: {"mensaje":"texto del mensaje o null","pasos":"qué le queda hacer a la persona, en una frase"}`,{cache:false});
+      await update(it,{mensaje:str(r&&r.mensaje,2000), resultado:str(r&&r.pasos,400)});
+    }
+  }catch(e){ setErr(e && e.code==="rate_limited" ? "Demasiadas consultas seguidas. Esperá un minuto." : "No pude terminar: "+it.que); }
+  finally{ busy--; setTimeout(idle,2500); }
+}
+
+function pad(n){return String(n).padStart(2,"0");}
+function calLink(it){
+  const p=new URLSearchParams({action:"TEMPLATE",text:it.que+(it.con_quien?" ("+it.con_quien+")":"")});
+  const det=[it.detalle, it.cita?"Dijiste: “"+it.cita+"”":null].filter(Boolean).join("\n");
+  if(det) p.set("details",det);
+  if(it.fecha){
+    const [y,m,dd]=it.fecha.split("-").map(Number); let d;
+    if(it.hora){
+      const [h,mi]=it.hora.split(":").map(Number);
+      const end=new Date(Date.UTC(y,m-1,dd,h,mi+30));
+      d=`${y}${pad(m)}${pad(dd)}T${pad(h)}${pad(mi)}00/${end.getUTCFullYear()}${pad(end.getUTCMonth()+1)}${pad(end.getUTCDate())}T${pad(end.getUTCHours())}${pad(end.getUTCMinutes())}00`;
+      p.set("ctz",TZ);
+    } else {
+      const n=new Date(Date.UTC(y,m-1,dd+1));
+      d=`${y}${pad(m)}${pad(dd)}/${n.getUTCFullYear()}${pad(n.getUTCMonth()+1)}${pad(n.getUTCDate())}`;
+    }
+    p.set("dates",d);
+  }
+  return "https://calendar.google.com/calendar/render?"+p.toString();
+}
+function nativeCal(it){
+  const title=it.que+(it.con_quien?" ("+it.con_quien+")":"");
+  const det=[it.detalle, it.cita?"Dijiste: \u201c"+it.cita+"\u201d":null].filter(Boolean).join("\n");
+  if(!it.fecha){ Android.calendar(title,det,0,0,false,false); return; }
+  const [y,m,d]=it.fecha.split("-").map(Number);
+  if(it.hora){ const [h,mi]=it.hora.split(":").map(Number); const b=new Date(y,m-1,d,h,mi).getTime(); Android.calendar(title,det,b,b+30*60000,false,true); }
+  else { const b=Date.UTC(y,m-1,d); Android.calendar(title,det,b,b+864e5,true,true); }
+}
+function fmtWhen(it){
+  if(!it.fecha) return "Sin fecha";
+  const [y,m,d]=it.fecha.split("-").map(Number);
+  return new Intl.DateTimeFormat("es-AR",{weekday:"short",day:"numeric",month:"short",timeZone:"UTC"}).format(new Date(Date.UTC(y,m-1,d)))+(it.hora?" · "+it.hora:"");
+}
+function el(tag,cls,text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+function btn(label,cls,fn){ const b=el("button","btn small"+(cls?" "+cls:""),label); b.type="button"; b.onclick=fn; return b; }
+function linkBtn(label,href){ const a=el("a","btn small",label); a.href=href; a.target="_blank"; a.rel="noopener"; return a; }
+
+function card(it){
+  const c=el("article","card "+it.tipo+(it.hecho?" done":""));
+  const state = it.hecho ? ["hecho","Hecho"] : (it.tipo==="juntos" && it.resultado) ? ["espera","Te espera"] : ["pend","Pendiente"];
+  c.append(el("span","pill "+state[0],state[1]));
+  c.append(el("div","what",it.que));
+  const meta=el("div","meta"); meta.append(el("span",null,fmtWhen(it))); if(it.con_quien) meta.append(el("span",null,"· con "+it.con_quien)); c.append(meta);
+  if(it.cita) c.append(el("div","quote","“"+it.cita+"”"));
+  if(it.tipo==="juntos" && it.resultado) c.append(el("div",null,it.resultado));
+  if(it.mensaje){ c.append(el("div","result",it.mensaje)); }
+  if(it.tipo==="solo" && it.resultado){ const d=el("details"); d.append(el("summary",null,"Ver lo que hizo")); d.append(el("div","result",it.resultado)); c.append(d); }
+  const row=el("div","row");
+  if(!it.hecho && it.tipo!=="yo") row.append(btn(it.resultado?"Rehacer":"Hazlo","primary",()=>doIt(it)));
+  if(it.mensaje){
+    row.append(btn("Mandar por WhatsApp",null,()=>Android.whatsapp(it.mensaje)));
+    row.append(btn("Copiar",null,e=>{ const b=e.currentTarget; navigator.clipboard.writeText(it.mensaje).then(()=>b.textContent="Copiado",()=>b.textContent="No se pudo copiar"); }));
+  }
+  if(it.tipo!=="solo" || it.fecha) row.append(btn("Agendar",null,()=>nativeCal(it)));
+  if(!(it.tipo==="solo" && it.hecho)) row.append(btn(it.hecho?"Pendiente":"Listo",null,()=>update(it,{hecho:!it.hecho, hechoEn:it.hecho?null:Date.now()})));
+  const del=btn("Quitar",null,()=>{ if(del.dataset.armed) remove(it); else { del.dataset.armed="1"; del.textContent="Tocá otra vez"; setTimeout(()=>{del.dataset.armed="";del.textContent="Quitar";},4000);} });
+  row.append(del); c.append(row);
+  return c;
+}
+
+function render(){
+  const order=(a,b)=>(a.hecho-b.hecho)||((a.fecha||"9999")+(a.hora||"")).localeCompare((b.fecha||"9999")+(b.hora||""))||b.creado-a.creado;
+  for(const [t,lid,cid,empty] of [["solo","lSolo","cSolo","Nada por acá."],["juntos","lJuntos","cJuntos","Nada por acá."],["yo","lYo","cYo","Nada por acá."]]){
+    const list=items.filter(i=>i.tipo===t).sort(order);
+    const box=$(lid); box.replaceChildren();
+    box.style.cssText="display:flex;flex-direction:column;gap:8px";
+    if(!list.length) box.append(el("div","empty",empty)); else list.forEach(i=>box.append(card(i)));
+    $(cid).textContent=list.length? list.length+" "+(list.length>1?"tareas":"tarea") : "";
+  }
+  const pend=items.filter(i=>!i.hecho).length;
+  const weekAgo=Date.now()-7*864e5;
+  const week=items.filter(i=>i.hecho && (i.hechoEn||0)>weekAgo).length;
+  const pct=items.length?Math.round(100*(items.length-pend)/items.length):0;
+  $("sPend").textContent=pend; $("sWeek").textContent=week; $("sPct").textContent=pct+" %"; $("sBar").style.width=pct+"%";
+}
+
+async function update(it,patch){
+  if(col){ try{ await col.doc(it.id).update(patch); }catch(e){ setErr("No pude guardar el cambio."); } }
+  else { Object.assign(it,patch); render(); }
+}
+async function remove(it){
+  if(col){ try{ await col.doc(it.id).delete(); }catch(e){ setErr("No pude quitarlo."); } }
+  else { items=items.filter(x=>x!==it); render(); }
+}
+
+// Ejemplos visibles solo hasta que cargue tu lista real
+items=[
+  {id:"e1",tipo:"solo",que:"Armar lista de materiales para la obra de Pablo",con_quien:"Pablo",fecha:null,hora:null,cita:"dale, te paso la lista",hecho:false,creado:3},
+  {id:"e2",tipo:"juntos",que:"Mandarle el presupuesto a Marcos",con_quien:"Marcos",fecha:null,hora:null,cita:"el jueves te lo mando",hecho:false,creado:2},
+  {id:"e3",tipo:"yo",que:"Llamar al mecánico por el service",con_quien:null,fecha:null,hora:null,cita:"listo, lo llamo mañana",hecho:false,creado:1}
+];
+render();
+for(const id of ["lSolo","lJuntos","lYo"]) $(id).querySelectorAll(".card").forEach(c=>c.prepend(el("span","pill pend","Ejemplo")));
+
+(function(){
+  dict=window.__dict; sample=window.__sample; col=window.__col;
+  col.onSnapshot(snap=>{ items=snap.docs.map(x=>({id:x.id,...x.data()})); render(); });
+  dict.onFinal(({text})=>appendFinal(text));
+  dict.onPartial(({text})=>{ $("partial").textContent=text; });
+  dict.onState(({state})=>{
+    listening=state!=="idle"; renderDrive();
+    if(listening) setStatus("Escuchando…","live");
+    else { $("partial").textContent=""; idle(); }
+  });
+  try{ prefs=localStorage.getItem("prefs")||""; $("prefs").value=prefs; }catch(e){}
+  window.renderWake=function(){
+    const kw=Android.getKeyword(), on=Android.standbyEnabled();
+    $("wakeToggle").textContent = on ? "Desactivar" : "Activar";
+    $("wakeToggle").classList.toggle("primary", !on);
+    $("wakeHelp").textContent = on
+      ? "Activada. La app queda esperando aunque apagues la pantalla. Decí \u201c"+kw+"\u201d para que empiece a anotar y \u201c"+kw+" listo\u201d para terminar."
+      : "Si la activás, no hace falta tocar el botón: decí \u201c"+kw+"\u201d y empieza a anotar, decí \u201c"+kw+" listo\u201d y termina. Gasta más batería y datos mientras está activada.";
+    if(document.activeElement!==$("kwInput")) $("kwInput").value=kw;
+    idle();
+  };
+  $("wakeToggle").addEventListener("click",()=>{ Android.setStandby(!Android.standbyEnabled()); setTimeout(renderWake,300); });
+  $("kwSave").addEventListener("click",()=>{ const k=$("kwInput").value.trim(); if(!k){ setErr("Escribí una palabra."); return; } Android.setKeyword(k); $("kwInput").blur(); renderWake(); setStatus("Palabra clave: "+k); setTimeout(idle,2500); });
+  if(Android.standbyEnabled() && !Android.isStandby() && !Android.isListening()) Android.setStandby(true);
+  renderWake();
+  let upd=null;
+  window.__updMsg=(m)=>{ $("updMsg").textContent=m; };
+  $("verTxt").textContent="Versión "+Android.version();
+  async function checkUpd(manual){
+    if(manual) $("checkMsg").textContent="Buscando…";
+    try{
+      const r=JSON.parse(await __native(id=>Android.checkUpdate(id)));
+      if(r.available){ upd=r; $("updNotes").textContent=(r.name||"")+(r.notes?"\n"+r.notes:""); $("updBox").hidden=false; if(manual) $("checkMsg").textContent="Hay una versión nueva, arriba de todo."; }
+      else if(manual) $("checkMsg").textContent="Ya tenés la última versión.";
+    }catch(e){ if(manual) $("checkMsg").textContent=(e&&e.message)||"No pude buscar."; }
+  }
+  $("checkUpd").addEventListener("click",()=>checkUpd(true));
+  $("updBtn").addEventListener("click",async ()=>{
+    if(!upd) return;
+    $("updBtn").disabled=true; $("updMsg").textContent="Bajando la actualización…";
+    try{ await __native(id=>Android.installUpdate(id, upd.url)); $("updMsg").textContent="Confirmá la instalación en el cartel de Android."; }
+    catch(e){ $("updMsg").textContent=(e&&e.message)||"No se pudo actualizar."; }
+    finally{ $("updBtn").disabled=false; }
+  });
+  setTimeout(()=>checkUpd(false),1500);
+  $("keyMsg").textContent = Android.hasKey() ? "Clave cargada" : "Todavía no cargaste tu clave";
+  $("saveKey").addEventListener("click",()=>{ const k=$("apiKey").value.trim(); if(!k){ $("keyMsg").textContent="Pegá la clave primero"; return; } Android.setKey(k); $("apiKey").value=""; $("keyMsg").textContent="Clave guardada"; });
+  })();
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && listening) keepAwake(true); });
+</script>
+</body></html>
