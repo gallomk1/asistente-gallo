@@ -121,6 +121,7 @@ body{margin:0}
       <button class="btn" id="extractBtn" type="button">Apuntar</button>
       <button class="btn primary" id="doAllBtn" type="button">Hazlo</button>
       <button class="btn" id="clearBtn" type="button">Borrar texto</button>
+      <button class="btn" id="proBtn" type="button">Procesar con Claude Pro</button>
     </div>
     <div class="err" id="err" hidden></div>
     <details id="prefsBox">
@@ -139,7 +140,7 @@ body{margin:0}
   </div>
   <section class="panel" id="keyBox">
     <h2>Ajustes</h2>
-    <p class="hint" style="margin:0;color:var(--muted);font-size:.85rem">La app usa tu clave de la API de Claude (la sacás en console.anthropic.com, sección API Keys). Queda guardada solo en este celular.</p>
+    <p class="hint" style="margin:0;color:var(--muted);font-size:.85rem"><b>Sin clave funciona en modo gratis</b>: entiende frases como "en 10 minutos", "mañana a las 5" o "en Corrientes 1234" y pone alarmas, pero no razona como la IA. Opcional: la app puede usar tu clave de la API de Claude (la sacás en console.anthropic.com, sección API Keys). Queda guardada solo en este celular.</p>
     <input id="apiKey" type="password" autocomplete="off" placeholder="Pegá tu clave acá (empieza con sk-ant-)" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
     <div class="row"><button class="btn small" id="saveKey" type="button">Guardar clave</button><span class="count" id="keyMsg"></span></div>
     <div class="row"><span class="count" id="verTxt"></span><button class="btn small" id="checkUpd" type="button">Buscar actualización</button><span class="count" id="checkMsg"></span></div>
@@ -232,6 +233,12 @@ $("driveBtn").addEventListener("click", () => {
   keepAwake(true);
 });
 function appendFinal(text){ const t=$("transcript"); t.value = t.value ? t.value+text : text.replace(/^\s+/,""); t.scrollTop=t.scrollHeight; saveDraft(); }
+$("proBtn").addEventListener("click", ()=>{
+  const t=$("transcript").value.trim();
+  if(!t){ setErr("No hay texto para mandar."); return; }
+  if(window.Android){ Android.copy(t); Android.open("https://claude.ai/artifact/NTs95M4zLpXCrAWsppiCRK"); }
+  setStatus("Texto copiado. En la página, pegalo en el cuadro y tocá Apuntar.");
+});
 $("clearBtn").addEventListener("click", ()=>{ $("transcript").value=""; saveDraft(); });
 $("extractBtn").addEventListener("click", extract);
 $("doAllBtn").addEventListener("click", async ()=>{
@@ -253,6 +260,15 @@ async function extract(){
   if(extracting) return; setErr("");
   const text=$("transcript").value.trim();
   if(!text){ setErr("No hay texto para revisar."); return; }
+  const gratis = !(window.Android && Android.hasKey());
+  if(gratis){
+    const list=localExtract(text);
+    for(const c of list) await addItem(c);
+    setStatus(list.length ? `Apunté ${list.length} compromiso${list.length>1?"s":""} (modo gratis).` : "No encontré compromisos en modo gratis.");
+    if(list.length){ $("transcript").value=""; saveDraft(); }
+    else setErr("No encontré fechas, horas ni tareas claras. Podés usar \u201cProcesar con Claude Pro\u201d para que lo lea la IA.");
+    setTimeout(idle,3000); return;
+  }
   if(!sample){ setErr("No puedo consultar a Claude desde esta vista."); return; }
   extracting=true; busy++; $("extractBtn").disabled=true; setStatus("Buscando compromisos…","busy");
   const prompt=`Sos el agente personal de alguien de Argentina que conversa mientras maneja o está ocupado y después se olvida de lo que acordó.
@@ -281,6 +297,64 @@ TEXTO:
   finally{ extracting=false; busy--; $("extractBtn").disabled=false; setTimeout(idle,3000); }
 }
 
+
+/* ---------- Modo gratis: entiende frases comunes sin usar la API ---------- */
+const NUM={un:1,una:1,uno:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12,quince:15,veinte:20,veinticinco:25,treinta:30,cuarenta:40,cincuenta:50};
+const DIAS=["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
+const MESES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+function sinTildes(t){ return t.normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase(); }
+function num(w){ return /^\d+$/.test(w)?parseInt(w,10):(NUM[w]||null); }
+function ymd(d){ const p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+function hm(d){ const p=n=>String(n).padStart(2,"0"); return p(d.getHours())+":"+p(d.getMinutes()); }
+function localExtract(text){
+  const out=[]; const now=new Date();
+  const frases=text.split(/[.!?\n]+|\by despues\b|\by ademas\b/i).map(x=>x.trim()).filter(x=>x.length>3);
+  for(const original of frases){
+    const f=sinTildes(original);
+    let fecha=null, hora=null, alarma=null, rel=false;
+    // "en 10 minutos", "en media hora", "en una hora"
+    let m=f.match(/\ben (\d+|[a-z]+) (minutos?|horas?)\b/), mh=f.match(/\ben media hora\b/);
+    if(mh || m){
+      const mins = mh ? 30 : (num(m[1])||0)*(m[2].startsWith("hora")?60:1);
+      if(mins>0){ const t=new Date(now.getTime()+mins*60000); fecha=ymd(t); hora=hm(t); alarma=fecha+"T"+hora; rel=true; }
+    }
+    // día
+    let dia=null;
+    if(/\bpasado manana\b/.test(f)){ dia=new Date(now); dia.setDate(dia.getDate()+2); }
+    else if(/\bmanana\b/.test(f.replace(/\bde (la )?manana\b/g,""))){ dia=new Date(now); dia.setDate(dia.getDate()+1); }
+    else if(/\bhoy\b|\besta (tarde|noche)\b/.test(f)){ dia=new Date(now); }
+    else { for(let i=0;i<7;i++){ if(new RegExp("\\b"+DIAS[i]+"\\b").test(f)){ dia=new Date(now); let k=(i-now.getDay()+7)%7; if(k===0) k=7; dia.setDate(dia.getDate()+k); break; } } }
+    const dm=f.match(/\bel (\d{1,2}) de ([a-z]+)\b/);
+    if(dm && MESES.includes(dm[2])){ dia=new Date(now.getFullYear(), MESES.indexOf(dm[2]), parseInt(dm[1],10)); if(dia<now && now-dia>864e5) dia.setFullYear(dia.getFullYear()+1); }
+    // hora: "a las 5", "a las 17:30", "a las diez y media", "de la tarde"
+    const hmt=f.match(/\ba las? (\d{1,2}|[a-z]+)(?:[:. ](\d{2}))?( y media| y cuarto| menos cuarto)?( de la (manana|tarde|noche)| hs| horas)?/);
+    if(hmt && num(hmt[1])!==null && num(hmt[1])<=24){
+      let H=num(hmt[1]), M=hmt[2]?parseInt(hmt[2],10):0;
+      if(hmt[3]===" y media") M=30; else if(hmt[3]===" y cuarto") M=15; else if(hmt[3]===" menos cuarto"){ H-=1; M=45; }
+      const per=hmt[5];
+      if((per==="tarde"||per==="noche") && H<12) H+=12;
+      else if(!per && H>=1 && H<=7) H+=12; // "a las 5" casi siempre es de tarde
+      const base = dia || new Date(now);
+      const t=new Date(base.getFullYear(),base.getMonth(),base.getDate(),H,M);
+      if(!dia && t<now) t.setDate(t.getDate()+1);
+      fecha=ymd(t); hora=hm(t);
+      const pidioAviso=/\b(avisa|recorda|despert|alarma)/.test(f);
+      const aviso=new Date(t.getTime()-(pidioAviso?0:30*60000));
+      alarma=ymd(aviso)+"T"+hm(aviso);
+    } else if(dia && !rel){ fecha=ymd(dia); }
+    // dirección: "en corrientes 1234", "calle san martin 450", "av. rivadavia 3000"
+    const dir=original.match(/\b(?:en|calle|avenida|av\.?|direcci[oó]n)\s+((?:[A-Za-zÁÉÍÓÚáéíóúÑñ.]+\s+){1,4}\d{1,5})\b/);
+    const lugar=dir?dir[1].trim():null;
+    const compromiso=/\b(tengo que|hay que|tenes que|debo|voy a|vamos a|quedamos|quede|anota|recorda|avisa|acordate|te (llamo|mando|paso|escribo|aviso)|le (llamo|mando|paso|escribo|aviso)|no me olvide|turno|reunion|cita)\b/.test(f);
+    if(!(compromiso || fecha || alarma || lugar)) continue;
+    let que=original.replace(/^(s[ií],?\s*|dale,?\s*|bueno,?\s*|che,?\s*)/i,"").replace(/^(anot[aá]|record[aá]me|avis[aá]me|acordate)( que| de)?\s*/i,"").trim();
+    que=que.charAt(0).toUpperCase()+que.slice(1);
+    const tipo=/\b(mand|envi|escrib|mensaje|mail|correo|whatsapp)/.test(f)?"juntos":"yo";
+    out.push({que:que.slice(0,140), tipo, con_quien:null, fecha, hora, lugar, alarma, detalle:"Anotado en modo gratis (sin IA).", cita:original.slice(0,200)});
+  }
+  return out;
+}
+
 function str(v,max){ return (typeof v==="string" && v.trim() && v!=="null") ? v.trim().slice(0,max) : null; }
 async function addItem(c){
   const it={
@@ -298,6 +372,7 @@ async function addItem(c){
 }
 
 async function doIt(it){
+  if(window.Android && !Android.hasKey()){ setErr("\u201cHazlo\u201d necesita la IA. Sin clave de la API, usá \u201cProcesar con Claude Pro\u201d o resolvelo vos."); return; }
   if(!sample){ setErr("No puedo consultar a Claude desde esta vista."); return; }
   busy++; setStatus("Trabajando en: "+it.que,"busy");
   const base=`Sos el agente personal de alguien de Argentina. Fecha actual en Buenos Aires: ${nowBA()}.${prefsBlock()}
