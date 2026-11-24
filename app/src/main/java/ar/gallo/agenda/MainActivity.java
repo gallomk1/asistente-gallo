@@ -19,7 +19,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.AlarmClock;
 import android.speech.RecognizerIntent;
-import java.util.ArrayList;
+import android.speech.tts.TextToSpeech;
+import java.util.Locale;
 import android.provider.CalendarContract;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
@@ -43,6 +44,8 @@ import java.util.List;
 public class MainActivity extends Activity {
     private static final int REQ_PERMS = 10;
     private static final String MODEL = "claude-opus-5-5";
+    private static final String PANEL_URL = "https://www.gallomk.net.ar/api/asistente.php";
+    private TextToSpeech tts; private boolean ttsListo = false;
     static final String UPDATE_REPO = "gallomk1/asistente-gallo";
     private static final String ACTION_INSTALL_DONE = "ar.gallo.agenda.INSTALL_DONE";
 
@@ -164,6 +167,12 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (web.canGoBack()) web.goBack(); else super.onBackPressed();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (tts != null) { tts.stop(); tts.shutdown(); tts = null; ttsListo = false; }
+        super.onDestroy();
     }
 
     private SharedPreferences prefs() { return getSharedPreferences("agenda", MODE_PRIVATE); }
@@ -385,6 +394,52 @@ public class MainActivity extends Activity {
             String e = ListenService.lastError;
             ListenService.lastError = "";
             return e;
+        }
+
+        /* ===== Panel DataFlow (gallomk.net.ar): clave propia guardada solo en el celular ===== */
+        @JavascriptInterface public boolean hasPanelKey() { return !prefs().getString("panelKey", "").isEmpty(); }
+        @JavascriptInterface public void setPanelKey(String k) { prefs().edit().putString("panelKey", k == null ? "" : k.trim()).apply(); }
+
+        /** Manda un pedido JSON al panel. Devuelve por callback el JSON de respuesta del servidor (aunque sea un error 4xx). */
+        @JavascriptInterface public void panel(final int id, final String json) {
+            new Thread(() -> {
+                try {
+                    String key = prefs().getString("panelKey", "");
+                    if (key.isEmpty()) { callback(id, false, "Falta la clave del panel. Cargala en Ajustes."); return; }
+                    HttpURLConnection c = (HttpURLConnection) new URL(PANEL_URL).openConnection();
+                    c.setRequestMethod("POST");
+                    c.setConnectTimeout(15000);
+                    c.setReadTimeout(30000);
+                    c.setDoOutput(true);
+                    c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                    c.setRequestProperty("X-Asistente-Clave", key);
+                    try (OutputStream os = c.getOutputStream()) { os.write(json.getBytes(StandardCharsets.UTF_8)); }
+                    int code = c.getResponseCode();
+                    InputStream is = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                    ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                    if (is != null) { byte[] buf = new byte[8192]; int n; while ((n = is.read(buf)) > 0) bo.write(buf, 0, n); is.close(); }
+                    String resp = bo.toString("UTF-8");
+                    if (code == 401) { callback(id, false, "La clave del panel no es correcta. Revisala en Ajustes."); return; }
+                    if (code == 429) { callback(id, false, "Demasiados intentos con clave incorrecta. Esperá 15 minutos."); return; }
+                    callback(id, true, resp);
+                } catch (Exception e) {
+                    callback(id, false, "No me pude conectar con el panel. Revisá que tengas internet.");
+                }
+            }).start();
+        }
+
+        /** Dice un texto en voz alta (respuestas del panel). */
+        @JavascriptInterface public void decir(final String texto) {
+            runOnUiThread(() -> {
+                if (texto == null || texto.trim().isEmpty()) return;
+                if (tts == null) {
+                    tts = new TextToSpeech(MainActivity.this, status -> {
+                        if (status == TextToSpeech.SUCCESS) { tts.setLanguage(new Locale("es", "AR")); ttsListo = true; tts.speak(texto, TextToSpeech.QUEUE_FLUSH, null, "panel"); }
+                    });
+                } else if (ttsListo) {
+                    tts.speak(texto, TextToSpeech.QUEUE_FLUSH, null, "panel");
+                }
+            });
         }
 
         @JavascriptInterface public boolean hasKey() { return !prefs().getString("apiKey", "").isEmpty(); }

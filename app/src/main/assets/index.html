@@ -190,6 +190,16 @@ body{margin:0}
     <input id="apiKey" type="password" autocomplete="off" placeholder="Pegá tu clave acá (empieza con sk-ant-)" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
     <div class="row"><button class="btn small" id="saveKey" type="button">Guardar clave</button><button class="btn small" id="delKey" type="button">Borrar clave</button><span class="count" id="keyMsg"></span></div>
   </section>
+  <section class="panel" id="panelBox">
+    <h2>Panel DataFlow</h2>
+    <p class="hint" style="margin:0;color:var(--muted);font-size:.85rem">Para pedirle datos al panel por voz: decí <b>“panel, vencimientos”</b>. Para cambios del Plantel: <b>“panel, pasá a Pérez al sector T2”</b> o <b>“panel, vacaciones de Pérez del 1 al 15 de diciembre”</b>; la app te repite el cambio y solo lo hace cuando decís <b>“confirmo”</b>. La clave es la que te dio el administrador de la página.</p>
+    <input id="panelKey" type="password" autocomplete="off" placeholder="Clave del panel" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
+    <div class="row"><button class="btn small" id="savePanelKey" type="button">Guardar clave</button><button class="btn small" id="delPanelKey" type="button">Borrar clave</button><span class="count" id="panelKeyMsg"></span></div>
+    <div id="panelOut" hidden style="margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.95rem">
+      <div id="panelTxt"></div>
+      <div class="row" id="panelBtns" hidden style="margin-top:8px"><button class="btn small" id="panelOk" type="button">Confirmo</button><button class="btn small" id="panelNo" type="button">Cancelar</button></div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -300,11 +310,73 @@ $("savePrefs").addEventListener("click", async ()=>{
 function nowBA(){ return new Intl.DateTimeFormat("es-AR",{timeZone:TZ,weekday:"long",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}).format(new Date()); }
 function prefsBlock(){ return prefs ? `\nPreferencias de la persona (respetalas siempre):\n"""${prefs}"""\n` : ""; }
 
+
+// ===== Panel DataFlow por voz (v2.6) =====
+let panelPend=null;
+function panelCall(obj){ return window.__native(id=>Android.panel(id, JSON.stringify(obj))).then(t=>{ try{ return JSON.parse(t); }catch(e){ return {ok:false,texto:"El panel respondió algo que no entendí."}; } }); }
+function panelShow(texto, pend){
+  $("panelOut").hidden=false; $("panelTxt").textContent=texto; $("panelBtns").hidden=!pend;
+  setStatus(texto.length>90?texto.slice(0,87)+"…":texto);
+  try{ Android.decir(texto); }catch(e){}
+}
+async function panelConfirmar(){
+  if(!panelPend || Date.now()>panelPend.exp){ panelPend=null; panelShow("No hay nada para confirmar (o venció). Volvé a pedirlo.",false); return; }
+  const t=panelPend.ticket; panelPend=null;
+  try{ const r=await panelCall({accion:"plantel_confirmar",ticket:t}); panelShow(r.texto||(r.ok?"Listo.":"No se pudo."),false); }
+  catch(e){ panelShow(e&&e.message?e.message:"No me pude conectar con el panel.",false); }
+}
+function panelCancelar(){ panelPend=null; panelShow("Cancelado. No cambié nada.",false); }
+async function panelDia(frase){
+  const prompt=`Sos un asistente que traduce una orden hablada (en español rioplatense, puede tener errores de reconocimiento) a un JSON. Fecha y hora actual en Buenos Aires: ${nowBA()}.
+Orden: """${frase}"""
+Devolvé solo este JSON:
+{"accion":"sector"|"vacaciones"|"ninguna","persona":"legajo numérico si lo dijo; si no, apellido y nombre tal como se dijeron","sector":"nombre del sector destino o null","desde":"dd-mm-aaaa o null","hasta":"dd-mm-aaaa o null"}
+Usá "sector" si pide pasar/cambiar a alguien de sector, "vacaciones" si pide marcar vacaciones, y "ninguna" si no es ninguna de las dos o dudás. No inventes datos que no se dijeron.`;
+  const j=await __sample.json(prompt);
+  if(j.accion==="sector") return {accion:"plantel_preparar",tipo:"sector",persona:j.persona||"",sector:j.sector||""};
+  if(j.accion==="vacaciones") return {accion:"plantel_preparar",tipo:"vacaciones",persona:j.persona||"",desde:j.desde||"",hasta:j.hasta||""};
+  return null;
+}
+// Devuelve el texto que queda para el resto de la app (sin la orden del panel). Si hubo orden, la ejecuta.
+async function panelVoz(text){
+  if(!(window.Android && Android.hasPanelKey && Android.hasPanelKey())) return text;
+  const segs0=text.split(/(?<=[.!?\n])\s+/).map(x=>x.trim()).filter(Boolean), segs=[], rest=[]; let hecho=false;
+  // Si hiciste una pausa después de "panel", el reconocedor lo corta: lo junto con lo que sigue.
+  for(let i=0;i<segs0.length;i++){ const f=sinTildes(segs0[i]).replace(/[.!?,\s]+$/,"").replace(/^(si|dale|bueno|ok)[, ]+/,"");
+    if(f==="panel" && i+1<segs0.length){ segs.push("panel, "+segs0[++i]); } else segs.push(segs0[i]); }
+  for(const seg of segs){
+    const f=sinTildes(seg).replace(/[.!?,]+$/,"").replace(/^(si|dale|bueno|ok)[, ]+/,"");
+    if(panelPend && /^(confirmo|confirmado)\b/.test(f)){ hecho=true; await panelConfirmar(); continue; }
+    if(panelPend && /^(cancelo|cancelar|cancelado|no confirmo|olvidate)\b/.test(f)){ hecho=true; panelCancelar(); continue; }
+    const m=f.match(/^panel[,:\s]+(.+)$/);
+    if(!m){ rest.push(seg.replace(/[.!?]+$/,"")); continue; }
+    hecho=true; const cmd=m[1];
+    try{
+      if(/\b(vencimientos?|vencen|vencidos?)\b/.test(cmd)){
+        let dias=30; const d=cmd.match(/(\d+)\s*dias/); if(d) dias=parseInt(d[1],10); else if(/semana/.test(cmd)) dias=7; else if(/quincena/.test(cmd)) dias=15;
+        setStatus("Consultando vencimientos…","busy");
+        const r=await panelCall({accion:"vencimientos",dias}); panelShow(r.texto||r.error||"No pude traer los vencimientos.",false);
+      } else {
+        if(!Android.hasKey()){ panelShow("Para cambios del Plantel necesito la clave de Claude cargada en Ajustes.",false); continue; }
+        setStatus("Entendiendo el pedido…","busy");
+        const pedido=await panelDia(seg.replace(/^\s*(?:s[ií]|dale|bueno|ok)?[,\s]*panel[,:\s]+/i,""));
+        if(!pedido){ panelShow("No entendí qué hacer con el Plantel. Probá: “panel, pasá a Pérez al sector T2”.",false); continue; }
+        const r=await panelCall(pedido);
+        if(r.ok && r.ticket){ panelPend={ticket:r.ticket,exp:Date.now()+290000}; panelShow(r.texto,true); }
+        else panelShow(r.texto||r.error||"No se pudo preparar el cambio.",false);
+      }
+    }catch(e){ panelShow(e&&e.message?e.message:"No me pude conectar con el panel.",false); }
+  }
+  return hecho?rest.join(". "):text;
+}
+
 let extracting=false;
 async function extract(){
   if(extracting) return; setErr("");
   let text=$("transcript").value.trim();
   if(!text){ setErr("No hay texto para revisar."); return; }
+  { extracting=true; let t2; try{ t2=await panelVoz(text); } finally{ extracting=false; }
+    if(t2!==text){ text=t2; $("transcript").value=text; saveDraft(); if(!text){ setTimeout(idle,6000); return; } } }
   const gx=extractGoals(text);
   if(gx.count){
     text=gx.rest; setStatus(`Agregué ${gx.count} objetivo${gx.count>1?"s":""} del día.`);
@@ -720,6 +792,10 @@ for(const id of ["lSolo","lJuntos","lYo"]) $(id).querySelectorAll(".card").forEa
   });
   setTimeout(()=>checkUpd(false),1500);
   $("keyMsg").textContent = Android.hasKey() ? "Clave cargada" : "Todavía no cargaste tu clave";
+  $("savePanelKey").addEventListener("click",()=>{ const k=$("panelKey").value.trim(); if(!k){ $("panelKeyMsg").textContent="Pegá la clave primero"; return; } Android.setPanelKey(k); $("panelKey").value=""; $("panelKeyMsg").textContent="Clave guardada"; });
+  $("delPanelKey").addEventListener("click",()=>{ Android.setPanelKey(""); $("panelKeyMsg").textContent="Clave borrada"; });
+  $("panelKeyMsg").textContent = Android.hasPanelKey() ? "Clave cargada" : "Todavía no cargaste la clave";
+  $("panelOk").addEventListener("click",panelConfirmar); $("panelNo").addEventListener("click",panelCancelar);
   $("delKey").addEventListener("click",()=>{ Android.setKey(""); $("keyMsg").textContent="Clave borrada: modo gratis"; });
   $("saveKey").addEventListener("click",()=>{ const k=$("apiKey").value.trim(); if(!k){ $("keyMsg").textContent="Pegá la clave primero"; return; } Android.setKey(k); $("apiKey").value=""; $("keyMsg").textContent="Clave guardada"; });
   })();
