@@ -17,6 +17,7 @@ import java.io.FileOutputStream;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.AlarmClock;
 import android.provider.CalendarContract;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
@@ -240,7 +241,11 @@ public class MainActivity extends Activity {
         if (code == 401) throw new UserError("La clave de Claude no es válida. Revisala en Ajustes.");
         if (code == 429) throw new UserError("Demasiadas consultas seguidas. Esperá un minuto y probá de nuevo.");
         if (code == 402 || resp.contains("credit balance")) throw new UserError("Tu cuenta de Claude no tiene saldo. Cargá crédito en console.anthropic.com.");
-        if (code >= 400) throw new UserError("Claude respondió con un error (" + code + "). Probá de nuevo.");
+        if (code >= 400) {
+            String detail = "";
+            try { detail = new JSONObject(resp).getJSONObject("error").optString("message", ""); } catch (Exception ignored) { }
+            throw new UserError("Claude respondió con un error (" + code + ")" + (detail.isEmpty() ? "" : ": " + detail));
+        }
         JSONObject r = new JSONObject(resp);
         if ("refusal".equals(r.optString("stop_reason"))) throw new UserError("Claude no quiso procesar este texto.");
         JSONArray content = r.getJSONArray("content");
@@ -290,6 +295,24 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public int version() { return myVersion(); }
+
+        /** Alarma real del reloj del celular: temporizador si falta menos de una hora, alarma si falta más. */
+        @JavascriptInterface public boolean alarm(String label, int seconds, int hour, int minute) {
+            Intent i;
+            if (seconds <= 3600) {
+                i = new Intent(AlarmClock.ACTION_SET_TIMER)
+                        .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
+                        .putExtra(AlarmClock.EXTRA_MESSAGE, label)
+                        .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
+            } else {
+                i = new Intent(AlarmClock.ACTION_SET_ALARM)
+                        .putExtra(AlarmClock.EXTRA_HOUR, hour)
+                        .putExtra(AlarmClock.EXTRA_MINUTES, minute)
+                        .putExtra(AlarmClock.EXTRA_MESSAGE, label)
+                        .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
+            }
+            try { startActivity(i); return true; } catch (Exception e) { return false; }
+        }
 
         @JavascriptInterface public void checkUpdate(final int id) {
             new Thread(() -> {

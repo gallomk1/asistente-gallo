@@ -265,8 +265,9 @@ Clasificá cada uno en "tipo":
 - "yo": solo lo puede hacer la persona (llamar, ir a un lugar, pagar, entregar algo físico).
 Lo MÁS importante es no perder datos concretos: fechas, horas y direcciones (calle, número, barrio, ciudad, lugar). Copialos exactos, tal como se dijeron; si una dirección o un dato quedó incompleto o dudoso, ponelo igual y aclaralo en "detalle".
 Respondé SOLO un JSON:
-{"compromisos":[{"que":"acción concreta y corta, en infinitivo","tipo":"solo|juntos|yo","con_quien":"nombre o null","fecha":"YYYY-MM-DD o null","hora":"HH:MM o null","lugar":"dirección o lugar exacto, o null","detalle":"contexto útil en una frase o null","cita":"frase textual corta que lo respalda"}]}
-Resolvé fechas relativas con la fecha actual. Si no hay compromisos devolvé {"compromisos":[]}.
+{"compromisos":[{"que":"acción concreta y corta, en infinitivo","tipo":"solo|juntos|yo","con_quien":"nombre o null","fecha":"YYYY-MM-DD o null","hora":"HH:MM o null","lugar":"dirección o lugar exacto, o null","alarma":"YYYY-MM-DDTHH:MM o null","detalle":"contexto útil en una frase o null","cita":"frase textual corta que lo respalda"}]}
+Resolvé fechas relativas con la fecha actual.
+"alarma": poné la fecha y hora exactas en que hay que sonarle una alarma al celular cuando la persona pidió que le avisen o le recuerden algo ("en 10 minutos", "avisame a las 5", "recordame mañana a las 8"), o cuando hay algo con hora en las próximas 24 horas (en ese caso, 30 minutos antes). Calculá "en X minutos" a partir de la hora actual. Si no corresponde, null. Si no hay compromisos devolvé {"compromisos":[]}.
 
 TEXTO:
 """${text}"""`;
@@ -276,7 +277,7 @@ TEXTO:
     for(const c of list) await addItem(c);
     setStatus(list.length ? `Apunté ${list.length} compromiso${list.length>1?"s":""}.` : "No encontré compromisos.");
     if(list.length){ $("transcript").value=""; saveDraft(); }
-  }catch(e){ setErr(e && e.code==="rate_limited" ? "Demasiadas consultas seguidas. Esperá un minuto." : "No pude revisar el texto. Probá de nuevo."); }
+  }catch(e){ setErr("No pude revisar el texto: "+((e&&e.message)||"error desconocido")); }
   finally{ extracting=false; busy--; $("extractBtn").disabled=false; setTimeout(idle,3000); }
 }
 
@@ -288,9 +289,10 @@ async function addItem(c){
     con_quien:str(c.con_quien,80),
     fecha:/^\d{4}-\d{2}-\d{2}$/.test(c.fecha||"")?c.fecha:null,
     hora:/^\d{2}:\d{2}$/.test(c.hora||"")?c.hora:null,
-    lugar:str(c.lugar,200), detalle:str(c.detalle,300), cita:str(c.cita,300),
+    lugar:str(c.lugar,200), alarma:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(c.alarma||"")?c.alarma:null, alarmaPuesta:false, detalle:str(c.detalle,300), cita:str(c.cita,300),
     resultado:null, mensaje:null, hecho:false, hechoEn:null, creado:Date.now()
   };
+  if(it.alarma && setAlarm(it)) it.alarmaPuesta=true;
   if(col) await col.doc("c"+it.creado+Math.random().toString(36).slice(2,6)).set(it);
   else { items.unshift({id:"l"+it.creado+Math.random(),...it}); render(); }
 }
@@ -310,7 +312,7 @@ No inventes datos que no tenés: si falta algo, dejá un [espacio para completar
       const r=await sample.json(base+`\nPreparalo para que la persona solo tenga que dar el último paso. Si hay que avisar o escribirle a alguien, redactá un mensaje corto de WhatsApp, cálido y natural, en voseo. Respondé SOLO JSON: {"mensaje":"texto del mensaje o null","pasos":"qué le queda hacer a la persona, en una frase"}`,{cache:false});
       await update(it,{mensaje:str(r&&r.mensaje,2000), resultado:str(r&&r.pasos,400)});
     }
-  }catch(e){ setErr(e && e.code==="rate_limited" ? "Demasiadas consultas seguidas. Esperá un minuto." : "No pude terminar: "+it.que); }
+  }catch(e){ setErr("No pude terminar \u201c"+it.que+"\u201d: "+((e&&e.message)||"error desconocido")); }
   finally{ busy--; setTimeout(idle,2500); }
 }
 
@@ -333,6 +335,14 @@ function calLink(it){
     p.set("dates",d);
   }
   return "https://calendar.google.com/calendar/render?"+p.toString();
+}
+/** Pone una alarma o temporizador real del celular si falta menos de 24 horas. */
+function setAlarm(it){
+  if(!it.alarma || !window.Android || !Android.alarm) return false;
+  const [d,t]=it.alarma.split("T"); const [y,m,dd]=d.split("-").map(Number); const [h,mi]=t.split(":").map(Number);
+  const when=new Date(y,m-1,dd,h,mi).getTime(), diff=when-Date.now();
+  if(diff < -60000 || diff > 24*3600e3) return false;
+  return Android.alarm(it.que+(it.lugar?" · "+it.lugar:""), Math.max(60, Math.round(diff/1000)), h, mi);
 }
 function nativeCal(it){
   const title=it.que+(it.con_quien?" ("+it.con_quien+")":"");
@@ -359,6 +369,7 @@ function card(it){
   c.append(el("div","what",it.que));
   const meta=el("div","meta"); meta.append(el("span",null,fmtWhen(it))); if(it.con_quien) meta.append(el("span",null,"· con "+it.con_quien)); c.append(meta);
   if(it.lugar) c.append(el("div","what",'\u{1F4CD} '+it.lugar));
+  if(it.alarma) c.append(el("div","meta",'\u23F0 '+(it.alarmaPuesta?"Alarma puesta para las ":"Aviso a las ")+it.alarma.slice(11)));
   if(it.cita) c.append(el("div","quote","“"+it.cita+"”"));
   if(it.tipo==="juntos" && it.resultado) c.append(el("div",null,it.resultado));
   if(it.mensaje){ c.append(el("div","result",it.mensaje)); }
@@ -370,6 +381,7 @@ function card(it){
     row.append(btn("Copiar",null,e=>{ const b=e.currentTarget; navigator.clipboard.writeText(it.mensaje).then(()=>b.textContent="Copiado",()=>b.textContent="No se pudo copiar"); }));
   }
   if(it.tipo!=="solo" || it.fecha) row.append(btn("Agendar",null,()=>nativeCal(it)));
+  if(it.alarma && !it.alarmaPuesta && !it.hecho) row.append(btn("Poner alarma",null,()=>{ if(setAlarm(it)) update(it,{alarmaPuesta:true}); else setErr("Esa hora ya pasó o falta más de un día: usá Agendar."); }));
   if(!(it.tipo==="solo" && it.hecho)) row.append(btn(it.hecho?"Pendiente":"Listo",null,()=>update(it,{hecho:!it.hecho, hechoEn:it.hecho?null:Date.now()})));
   const del=btn("Quitar",null,()=>{ if(del.dataset.armed) remove(it); else { del.dataset.armed="1"; del.textContent="Tocá otra vez"; setTimeout(()=>{del.dataset.armed="";del.textContent="Quitar";},4000);} });
   row.append(del); c.append(row);
