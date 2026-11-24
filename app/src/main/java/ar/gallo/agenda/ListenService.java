@@ -51,6 +51,7 @@ public class ListenService extends Service {
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("agenda", MODE_PRIVATE); }
     static String keyword(Context c) { return prefs(c).getString("keyword", "gallo"); }
+    static String endword(Context c) { return prefs(c).getString("endword", "fin"); }
     static boolean standbyEnabled(Context c) { return prefs(c).getBoolean("standby", false); }
 
     static synchronized void appendPending(Context c, String text) {
@@ -136,7 +137,7 @@ public class ListenService extends Service {
             Intent fin = new Intent(this, ListenService.class).setAction(ACTION_FINISH);
             PendingIntent finPi = PendingIntent.getService(this, 2, fin, PendingIntent.FLAG_IMMUTABLE);
             b.setContentTitle("Anotando lo que se habla")
-             .setContentText("Decí \"" + kw + " listo\" o tocá Listo para terminar")
+             .setContentText("Decí \"" + endword(this) + "\" o tocá Listo para terminar")
              .addAction(new Notification.Action.Builder(null, "Listo", finPi).build());
         } else {
             Intent rec = new Intent(this, ListenService.class).setAction(ACTION_RECORD);
@@ -197,7 +198,17 @@ public class ListenService extends Service {
             refreshNotification();
             return;
         }
-        // anotando
+        // anotando: la palabra de fin cierra si es lo último que se dijo
+        String ew = norm(endword(this));
+        if (!ew.isEmpty() && (n.equals(ew) || n.endsWith(" " + ew))) {
+            String before = n.substring(0, n.length() - ew.length()).trim();
+            if (!before.isEmpty()) appendPending(this, before + ".");
+            recording = false;
+            flagProcess(this, true);
+            if (!standbyEnabled(this)) { stopSelf(); return; }
+            refreshNotification();
+            return;
+        }
         if (at >= 0) {
             String after = n.substring(Math.min(n.length(), at + kw.length())).trim();
             if (isFinish(after)) {

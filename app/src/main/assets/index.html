@@ -106,7 +106,11 @@ body{margin:0}
     <p style="margin:0;color:var(--muted);font-size:.85rem" id="wakeHelp"></p>
     <div class="row">
       <input id="kwInput" type="text" autocomplete="off" maxlength="30" style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
-      <button class="btn small" id="kwSave" type="button">Cambiar palabra</button>
+    </div>
+    <div class="row">
+      <label for="kwInput" class="count" style="width:100%">Arriba: palabra para empezar. Abajo: palabra para terminar.</label>
+      <input id="ewInput" type="text" autocomplete="off" maxlength="30" style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
+      <button class="btn small" id="kwSave" type="button">Guardar palabras</button>
     </div>
   </section>
 
@@ -259,8 +263,9 @@ Clasificá cada uno en "tipo":
 - "solo": el agente lo puede resolver entero escribiendo texto (armar una lista, un resumen, un borrador de presupuesto, buscar ideas).
 - "juntos": el agente lo prepara y la persona da el último paso (mandar un mensaje o mail a alguien, confirmar un turno, agendar una reunión).
 - "yo": solo lo puede hacer la persona (llamar, ir a un lugar, pagar, entregar algo físico).
+Lo MÁS importante es no perder datos concretos: fechas, horas y direcciones (calle, número, barrio, ciudad, lugar). Copialos exactos, tal como se dijeron; si una dirección o un dato quedó incompleto o dudoso, ponelo igual y aclaralo en "detalle".
 Respondé SOLO un JSON:
-{"compromisos":[{"que":"acción concreta y corta, en infinitivo","tipo":"solo|juntos|yo","con_quien":"nombre o null","fecha":"YYYY-MM-DD o null","hora":"HH:MM o null","detalle":"contexto útil en una frase o null","cita":"frase textual corta que lo respalda"}]}
+{"compromisos":[{"que":"acción concreta y corta, en infinitivo","tipo":"solo|juntos|yo","con_quien":"nombre o null","fecha":"YYYY-MM-DD o null","hora":"HH:MM o null","lugar":"dirección o lugar exacto, o null","detalle":"contexto útil en una frase o null","cita":"frase textual corta que lo respalda"}]}
 Resolvé fechas relativas con la fecha actual. Si no hay compromisos devolvé {"compromisos":[]}.
 
 TEXTO:
@@ -283,7 +288,7 @@ async function addItem(c){
     con_quien:str(c.con_quien,80),
     fecha:/^\d{4}-\d{2}-\d{2}$/.test(c.fecha||"")?c.fecha:null,
     hora:/^\d{2}:\d{2}$/.test(c.hora||"")?c.hora:null,
-    detalle:str(c.detalle,300), cita:str(c.cita,300),
+    lugar:str(c.lugar,200), detalle:str(c.detalle,300), cita:str(c.cita,300),
     resultado:null, mensaje:null, hecho:false, hechoEn:null, creado:Date.now()
   };
   if(col) await col.doc("c"+it.creado+Math.random().toString(36).slice(2,6)).set(it);
@@ -332,10 +337,11 @@ function calLink(it){
 function nativeCal(it){
   const title=it.que+(it.con_quien?" ("+it.con_quien+")":"");
   const det=[it.detalle, it.cita?"Dijiste: \u201c"+it.cita+"\u201d":null].filter(Boolean).join("\n");
-  if(!it.fecha){ Android.calendar(title,det,0,0,false,false); return; }
+  const loc=it.lugar||"";
+  if(!it.fecha){ Android.calendar(title,det,loc,0,0,false,false); return; }
   const [y,m,d]=it.fecha.split("-").map(Number);
-  if(it.hora){ const [h,mi]=it.hora.split(":").map(Number); const b=new Date(y,m-1,d,h,mi).getTime(); Android.calendar(title,det,b,b+30*60000,false,true); }
-  else { const b=Date.UTC(y,m-1,d); Android.calendar(title,det,b,b+864e5,true,true); }
+  if(it.hora){ const [h,mi]=it.hora.split(":").map(Number); const b=new Date(y,m-1,d,h,mi).getTime(); Android.calendar(title,det,loc,b,b+30*60000,false,true); }
+  else { const b=Date.UTC(y,m-1,d); Android.calendar(title,det,loc,b,b+864e5,true,true); }
 }
 function fmtWhen(it){
   if(!it.fecha) return "Sin fecha";
@@ -352,6 +358,7 @@ function card(it){
   c.append(el("span","pill "+state[0],state[1]));
   c.append(el("div","what",it.que));
   const meta=el("div","meta"); meta.append(el("span",null,fmtWhen(it))); if(it.con_quien) meta.append(el("span",null,"· con "+it.con_quien)); c.append(meta);
+  if(it.lugar) c.append(el("div","what",'\u{1F4CD} '+it.lugar));
   if(it.cita) c.append(el("div","quote","“"+it.cita+"”"));
   if(it.tipo==="juntos" && it.resultado) c.append(el("div",null,it.resultado));
   if(it.mensaje){ c.append(el("div","result",it.mensaje)); }
@@ -415,17 +422,18 @@ for(const id of ["lSolo","lJuntos","lYo"]) $(id).querySelectorAll(".card").forEa
   });
   try{ prefs=localStorage.getItem("prefs")||""; $("prefs").value=prefs; }catch(e){}
   window.renderWake=function(){
-    const kw=Android.getKeyword(), on=Android.standbyEnabled();
+    const kw=Android.getKeyword(), ew=Android.getEndword(), on=Android.standbyEnabled();
     $("wakeToggle").textContent = on ? "Desactivar" : "Activar";
     $("wakeToggle").classList.toggle("primary", !on);
     $("wakeHelp").textContent = on
-      ? "Activada. La app queda esperando aunque apagues la pantalla. Decí \u201c"+kw+"\u201d para que empiece a anotar y \u201c"+kw+" listo\u201d para terminar."
-      : "Si la activás, no hace falta tocar el botón: decí \u201c"+kw+"\u201d y empieza a anotar, decí \u201c"+kw+" listo\u201d y termina. Gasta más batería y datos mientras está activada.";
+      ? "Activada. La app queda esperando aunque apagues la pantalla. Decí \u201c"+kw+"\u201d para que empiece a anotar y \u201c"+ew+"\u201d para terminar."
+      : "Si la activás, no hace falta tocar el botón: decí \u201c"+kw+"\u201d y empieza a anotar, decí \u201c"+ew+"\u201d y termina. Gasta más batería y datos mientras está activada.";
     if(document.activeElement!==$("kwInput")) $("kwInput").value=kw;
+    if(document.activeElement!==$("ewInput")) $("ewInput").value=ew;
     idle();
   };
   $("wakeToggle").addEventListener("click",()=>{ Android.setStandby(!Android.standbyEnabled()); setTimeout(renderWake,300); });
-  $("kwSave").addEventListener("click",()=>{ const k=$("kwInput").value.trim(); if(!k){ setErr("Escribí una palabra."); return; } Android.setKeyword(k); $("kwInput").blur(); renderWake(); setStatus("Palabra clave: "+k); setTimeout(idle,2500); });
+  $("kwSave").addEventListener("click",()=>{ const k=$("kwInput").value.trim(); if(!k){ setErr("Escribí una palabra."); return; } const e2=$("ewInput").value.trim()||"fin"; if(e2.toLowerCase()===k.toLowerCase()){ setErr("La palabra para terminar tiene que ser distinta a la de empezar."); return; } Android.setKeyword(k); Android.setEndword(e2); $("kwInput").blur(); $("ewInput").blur(); renderWake(); setStatus("Empezar: "+k+" · Terminar: "+e2); setTimeout(idle,2500); });
   if(Android.standbyEnabled() && !Android.isStandby() && !Android.isListening()) Android.setStandby(true);
   renderWake();
   let upd=null;

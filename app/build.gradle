@@ -6,8 +6,8 @@ android {
         applicationId 'ar.gallo.agenda'
         minSdk 26
         targetSdk 33
-        versionCode 7
-        versionName "1.6"
+        versionCode 8
+        versionName "1.7"
     }
     def ksFile = rootProject.file('keystore.properties')
     def ks = new Properties()

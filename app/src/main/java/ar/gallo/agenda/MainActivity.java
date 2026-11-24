@@ -267,6 +267,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface public boolean isStandby() { return ListenService.running && !ListenService.recording; }
         @JavascriptInterface public boolean standbyEnabled() { return ListenService.standbyEnabled(MainActivity.this); }
         @JavascriptInterface public String getKeyword() { return ListenService.keyword(MainActivity.this); }
+        @JavascriptInterface public String getEndword() { return ListenService.endword(MainActivity.this); }
+        @JavascriptInterface public void setEndword(String k) {
+            String v = k == null ? "" : k.trim();
+            prefs().edit().putString("endword", v.isEmpty() ? "fin" : v).apply();
+            if (ListenService.running) startService(new Intent(MainActivity.this, ListenService.class).setAction(ListenService.ACTION_STANDBY));
+        }
 
         @JavascriptInterface public void setKeyword(String k) {
             String v = k == null ? "" : k.trim();
@@ -354,11 +360,12 @@ public class MainActivity extends Activity {
         }
 
         /** Abre el calendario del celular con el evento ya cargado. allDay: inicio/fin en milisegundos. */
-        @JavascriptInterface public void calendar(String title, String details, double begin, double end, boolean allDay, boolean hasDate) {
+        @JavascriptInterface public void calendar(String title, String details, String location, double begin, double end, boolean allDay, boolean hasDate) {
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI)
                         .putExtra(CalendarContract.Events.TITLE, title)
                         .putExtra(CalendarContract.Events.DESCRIPTION, details);
+                if (location != null && !location.isEmpty()) i.putExtra(CalendarContract.Events.EVENT_LOCATION, location);
                 if (hasDate) {
                     i.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, (long) begin)
                      .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, (long) end)
