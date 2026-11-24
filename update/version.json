@@ -1,1 +1,1 @@
-{"versionCode": 11, "name": "Asistente Gallo 1.9", "notes": "Modo gratis: funciona sin clave de la API (fechas, horas, direcciones y alarmas). Botón para procesar con Claude Pro.", "apk": "AsistenteGallo.apk"}
+{"versionCode": 12, "name": "Asistente Gallo 2.0", "notes": "El modo gratis guarda la oración entera, entiende \"avisame X minutos antes\" y las direcciones con calle.", "apk": "AsistenteGallo.apk"}

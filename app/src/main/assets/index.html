@@ -312,17 +312,28 @@ function num(w){ return /^\d+$/.test(w)?parseInt(w,10):(NUM[w]||null); }
 function ymd(d){ const p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
 function hm(d){ const p=n=>String(n).padStart(2,"0"); return p(d.getHours())+":"+p(d.getMinutes()); }
 function localExtract(text){
-  const out=[]; const now=new Date();
-  const frases=text.split(/[.!?\n]+|\by despues\b|\by ademas\b/i).map(x=>x.trim()).filter(x=>x.length>3);
-  for(const original of frases){
+  const now=new Date(), out=[];
+  const STARTER=/\b(recordatorio|recordame|recorda|recordar|anota|anotar|tengo que|tenes que|hay que|debo|quedamos|quede|turno|reunion|cita|no me olvide|te (llamo|mando|paso|escribo|aviso)|le (llamo|mando|paso|escribo|aviso))\b/;
+  // 1) Juntar los pedazos: el reconocedor corta en cada pausa, pero una idea sigue hasta el próximo "recordatorio", "tengo que", etc.
+  const segs=text.split(/[.!?\n]+/).map(x=>x.trim()).filter(x=>x.length>1);
+  const groups=[];
+  for(const seg of segs){
+    const f=sinTildes(seg).replace(/^(si|dale|bueno|che|ok|listo)[, ]+/,"");
+    const isModifier=/^(y )?(avis\w*|en la|en el|en calle|calle|avenida|av\b|a las|para las|el dia|para el|antes|despues|\d+ minutos antes)/.test(f) && !/^(y )?avis\w* (a las|que)/.test(f);
+    const cur=groups[groups.length-1];
+    const curBare = cur && cur.length===1 && /^(recordatorio|recordame|recorda|anota|nota|anotar)$/.test(sinTildes(cur[0]).replace(/[^a-z ]/g,"").trim());
+    if(cur && (curBare || isModifier || !STARTER.test(f))) cur.push(seg); else groups.push([seg]);
+  }
+  for(const g of groups){
+    const original=g.join(", ");
     const f=sinTildes(original);
-    let fecha=null, hora=null, alarma=null, rel=false;
-    // "en 10 minutos", "en media hora", "en una hora"
-    let m=f.match(/\ben (\d+|[a-z]+) (minutos?|horas?)\b/), mh=f.match(/\ben media hora\b/);
-    if(mh || m){
-      const mins = mh ? 30 : (num(m[1])||0)*(m[2].startsWith("hora")?60:1);
-      if(mins>0){ const t=new Date(now.getTime()+mins*60000); fecha=ymd(t); hora=hm(t); alarma=fecha+"T"+hora; rel=true; }
-    }
+    let fecha=null, hora=null, alarma=null, ev=null, sinHora=false;
+    // aviso previo: "avisarme 15 minutos antes", "una hora antes"
+    let lead=null; const lm=f.match(/\b(\d+|[a-z]+|media) (minutos?|horas?|hora) antes\b/);
+    if(lm){ const n = lm[1]==="media"?0.5:num(lm[1]); if(n) lead=Math.round(n*(lm[2].startsWith("hora")?60:1)); }
+    // "en 10 minutos" / "en media hora" (no confundir con "15 minutos antes")
+    const rm=f.match(/\ben (\d+|[a-z]+) (minutos?|horas?)\b(?! antes)/), rh=/\ben media hora\b/.test(f);
+    if(rh || (rm && num(rm[1]))){ const mins = rh?30:num(rm[1])*(rm[2].startsWith("hora")?60:1); ev=new Date(now.getTime()+mins*60000); }
     // día
     let dia=null;
     if(/\bpasado manana\b/.test(f)){ dia=new Date(now); dia.setDate(dia.getDate()+2); }
@@ -330,32 +341,38 @@ function localExtract(text){
     else if(/\bhoy\b|\besta (tarde|noche)\b/.test(f)){ dia=new Date(now); }
     else { for(let i=0;i<7;i++){ if(new RegExp("\\b"+DIAS[i]+"\\b").test(f)){ dia=new Date(now); let k=(i-now.getDay()+7)%7; if(k===0) k=7; dia.setDate(dia.getDate()+k); break; } } }
     const dm=f.match(/\bel (\d{1,2}) de ([a-z]+)\b/);
-    if(dm && MESES.includes(dm[2])){ dia=new Date(now.getFullYear(), MESES.indexOf(dm[2]), parseInt(dm[1],10)); if(dia<now && now-dia>864e5) dia.setFullYear(dia.getFullYear()+1); }
-    // hora: "a las 5", "a las 17:30", "a las diez y media", "de la tarde"
-    const hmt=f.match(/\ba las? (\d{1,2}|[a-z]+)(?:[:. ](\d{2}))?( y media| y cuarto| menos cuarto)?( de la (manana|tarde|noche)| hs| horas)?/);
-    if(hmt && num(hmt[1])!==null && num(hmt[1])<=24){
+    if(dm && MESES.includes(dm[2])){ dia=new Date(now.getFullYear(), MESES.indexOf(dm[2]), parseInt(dm[1],10)); if(now-dia>864e5) dia.setFullYear(dia.getFullYear()+1); }
+    // hora
+    const hmt=f.match(/\b(?:a|para) las? (\d{1,2}|[a-z]+)(?:[:. ](\d{2}))?( y media| y cuarto| menos cuarto)?( de la (manana|tarde|noche)| hs| horas)?/);
+    if(!ev && hmt && num(hmt[1])!==null && num(hmt[1])<=24){
       let H=num(hmt[1]), M=hmt[2]?parseInt(hmt[2],10):0;
       if(hmt[3]===" y media") M=30; else if(hmt[3]===" y cuarto") M=15; else if(hmt[3]===" menos cuarto"){ H-=1; M=45; }
       const per=hmt[5];
-      if((per==="tarde"||per==="noche") && H<12) H+=12;
-      else if(!per && H>=1 && H<=7) H+=12; // "a las 5" casi siempre es de tarde
-      const base = dia || new Date(now);
-      const t=new Date(base.getFullYear(),base.getMonth(),base.getDate(),H,M);
-      if(!dia && t<now) t.setDate(t.getDate()+1);
-      fecha=ymd(t); hora=hm(t);
-      const pidioAviso=/\b(avisa|recorda|despert|alarma)/.test(f);
-      const aviso=new Date(t.getTime()-(pidioAviso?0:30*60000));
-      alarma=ymd(aviso)+"T"+hm(aviso);
-    } else if(dia && !rel){ fecha=ymd(dia); }
-    // dirección: "en corrientes 1234", "calle san martin 450", "av. rivadavia 3000"
-    const dir=original.match(/\b(?:en|calle|avenida|av\.?|direcci[oó]n)\s+((?:[A-Za-zÁÉÍÓÚáéíóúÑñ.]+\s+){1,4}\d{1,5})\b/);
-    const lugar=dir?dir[1].trim():null;
-    const compromiso=/\b(tengo que|hay que|tenes que|debo|voy a|vamos a|quedamos|quede|anota|recorda|avisa|acordate|te (llamo|mando|paso|escribo|aviso)|le (llamo|mando|paso|escribo|aviso)|no me olvide|turno|reunion|cita)\b/.test(f);
-    if(!(compromiso || fecha || alarma || lugar)) continue;
-    let que=original.replace(/^(s[ií],?\s*|dale,?\s*|bueno,?\s*|che,?\s*)/i,"").replace(/^(anot[aá]|record[aá]me|avis[aá]me|acordate)( que| de)?\s*/i,"").trim();
+      if((per==="tarde"||per==="noche") && H<12) H+=12; else if(!per && H>=1 && H<=7) H+=12;
+      const base=dia||new Date(now); ev=new Date(base.getFullYear(),base.getMonth(),base.getDate(),H,M);
+      if(!dia && ev<now) ev.setDate(ev.getDate()+1);
+    }
+    if(ev){
+      fecha=ymd(ev); hora=hm(ev);
+      const pidio=/\b(avis|record|alarma|despert)/.test(f);
+      const before = lead!==null ? lead : (rm||rh ? 0 : (pidio?0:30));
+      const al=new Date(ev.getTime()-before*60000); alarma=ymd(al)+"T"+hm(al);
+    } else if(dia){ fecha=ymd(dia); sinHora=true; }
+    // dirección
+    let lugar=null;
+    const d1=original.match(/\b((?:calle|avenida|av\.?|pasaje|ruta|diagonal)\s+(?:[A-Za-zÁÉÍÓÚáéíóúÑñ.]+\s+){1,4}\d{1,5})\b/i)
+          || original.match(/\ben\s+(?:la\s+|el\s+)?((?:[A-Za-zÁÉÍÓÚáéíóúÑñ.]+\s+){1,3}\d{2,5})\b/i);
+    if(d1) lugar=d1[1].replace(/^(la|el)\s+/i,"").replace(/\b([a-záéíóúñ])/g,c=>c.toUpperCase());
+    const compromiso=STARTER.test(f)||/\b(voy a|vamos a|avis|record)/.test(f);
+    if(!(compromiso || fecha || lugar)) continue;
+    let que=original.replace(/^(s[ií]|dale|bueno|che|ok|listo|y)[,\s]+/i,"").replace(/^(recordatorio|record[aá]me|record[aá]|anot[aá]|nota)( que| de)?[,:\s]*/i,"").trim();
+    que=que.replace(/^[,:\s]+/,"");
+    if(!que) continue;
     que=que.charAt(0).toUpperCase()+que.slice(1);
     const tipo=/\b(mand|envi|escrib|mensaje|mail|correo|whatsapp)/.test(f)?"juntos":"yo";
-    out.push({que:que.slice(0,140), tipo, con_quien:null, fecha, hora, lugar, alarma, detalle:"Anotado en modo gratis (sin IA).", cita:original.slice(0,200)});
+    const notas=["Anotado en modo gratis (sin IA)."];
+    if(sinHora) notas.push(lead?"Pediste aviso "+lead+" minutos antes, pero falta la hora: tocá Agendar para ponerla.":"Falta la hora: tocá Agendar para ponerla.");
+    out.push({que:que.slice(0,300), tipo, con_quien:null, fecha, hora, lugar, alarma, detalle:notas.join(" "), cita:original.slice(0,300)});
   }
   return out;
 }
