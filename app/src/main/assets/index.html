@@ -114,10 +114,13 @@ body{margin:0}
     <div class="status" aria-live="polite"><span class="dot" id="dot"></span><span id="statusText">Listo</span></div>
   </header>
 
-  <section class="panel" id="updBox" hidden>
-    <h2>Hay una versión nueva</h2>
-    <p style="margin:0;font-size:.9rem;white-space:pre-wrap" id="updNotes"></p>
-    <div class="row"><button class="btn primary" id="updBtn" type="button">Actualizar</button><span class="count" id="updMsg"></span></div>
+  <section class="panel" id="updPanel">
+    <div class="row" style="justify-content:space-between"><h2 id="updTitle">Actualizaciones</h2><span class="count" id="verTxt"></span></div>
+    <div id="updBox" hidden style="display:flex;flex-direction:column;gap:10px">
+      <p style="margin:0;font-size:.9rem;white-space:pre-wrap" id="updNotes"></p>
+      <div class="row"><button class="btn primary" id="updBtn" type="button">Actualizar</button><span class="count" id="updMsg"></span></div>
+    </div>
+    <div class="row"><button class="btn small" id="checkUpd" type="button">Buscar actualización</button><span class="count" id="checkMsg"></span></div>
   </section>
 
   <div class="top">
@@ -185,7 +188,6 @@ body{margin:0}
     <p class="hint" style="margin:0;color:var(--muted);font-size:.85rem"><b>Sin clave funciona en modo gratis</b>: entiende frases como "en 10 minutos", "mañana a las 5" o "en Corrientes 1234" y pone alarmas, pero no razona como la IA. Opcional: la app puede usar tu clave de la API de Claude (la sacás en console.anthropic.com, sección API Keys). Queda guardada solo en este celular.</p>
     <input id="apiKey" type="password" autocomplete="off" placeholder="Pegá tu clave acá (empieza con sk-ant-)" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
     <div class="row"><button class="btn small" id="saveKey" type="button">Guardar clave</button><button class="btn small" id="delKey" type="button">Borrar clave</button><span class="count" id="keyMsg"></span></div>
-    <div class="row"><span class="count" id="verTxt"></span><button class="btn small" id="checkUpd" type="button">Buscar actualización</button><span class="count" id="checkMsg"></span></div>
   </section>
 </div>
 
@@ -689,8 +691,8 @@ for(const id of ["lSolo","lJuntos","lYo"]) $(id).querySelectorAll(".card").forEa
     if(manual) $("checkMsg").textContent="Buscando…";
     try{
       const r=JSON.parse(await __native(id=>Android.checkUpdate(id)));
-      if(r.available){ upd=r; $("updNotes").textContent=(r.name||"")+(r.notes?"\n"+r.notes:""); $("updBox").hidden=false; if(manual) $("checkMsg").textContent="Hay una versión nueva, arriba de todo."; }
-      else if(manual) $("checkMsg").textContent="Ya tenés la última versión.";
+      if(r.available){ upd=r; $("updNotes").textContent=(r.name||"")+(r.notes?"\n"+r.notes:""); $("updBox").hidden=false; $("updTitle").textContent="Hay una versión nueva"; $("checkMsg").textContent=""; }
+      else { $("updBox").hidden=true; $("updTitle").textContent="Actualizaciones"; $("checkMsg").textContent = manual ? "Ya tenés la última versión." : "Estás al día."; }
     }catch(e){ if(manual) $("checkMsg").textContent=(e&&e.message)||"No pude buscar."; }
   }
   $("checkUpd").addEventListener("click",()=>checkUpd(true));
