@@ -138,9 +138,10 @@ body{margin:0}
     <div class="row" style="justify-content:space-between"><span class="count" id="gCount"></span><button type="button" class="btn small" id="gToday" hidden>Volver a hoy</button></div>
     <div class="bar" style="margin-top:0"><i id="gBar"></i></div>
     <div id="gList" style="display:flex;flex-direction:column;gap:8px"></div>
-    <form class="gadd" id="gForm"><input id="gInput" placeholder="Nuevo objetivo para este día" autocomplete="off" maxlength="200"><button class="btn primary" type="submit">Agregar</button></form>
+    <form class="gadd" id="gForm"><button class="btn" type="button" id="gMic" aria-label="Dictar objetivo">🎤</button><input id="gInput" placeholder="Escribí o tocá el micrófono" autocomplete="off" maxlength="200"><button class="btn primary" type="submit">Agregar</button></form>
+    <span class="count" id="gMsg"></span>
     <div class="row"><button type="button" class="btn small" id="gMove" hidden>Pasar pendientes al día siguiente</button></div>
-    <p class="hint" style="margin:0;color:var(--muted);font-size:.8rem">También por voz: decí “objetivo, terminar el presupuesto” o “objetivos para mañana, ir al banco, llamar a Juan”.</p>
+    <p class="hint" style="margin:0;color:var(--muted);font-size:.8rem">🎤 Tocá el micrófono y decí el objetivo: se agrega al día que estás viendo. Para varios, separalos con “y después”. También desde la grabación principal: “objetivo, terminar el presupuesto”.</p>
   </section>
 
   <section class="panel" id="wakeBox">
@@ -460,6 +461,20 @@ $("gPrev").onclick=()=>{ gDate=shiftDay(gDate,-1); renderGoals(); };
 $("gNext").onclick=()=>{ gDate=shiftDay(gDate,1); renderGoals(); };
 $("gToday").onclick=()=>{ gDate=ymd(new Date()); renderGoals(); };
 $("gForm").onsubmit=e=>{ e.preventDefault(); if(addGoal(gDate,$("gInput").value)){ saveGoals(); $("gInput").value=""; renderGoals(); } $("gInput").focus(); };
+$("gMic").onclick=async()=>{
+  if(!window.Android || !Android.dictar){ $("gInput").focus(); return; }
+  if(Android.isListening()){ $("gMsg").textContent="Primero terminá la grabación de arriba."; return; }
+  const sb=Android.standbyEnabled(); if(sb) Android.setStandby(false);
+  $("gMsg").textContent="Escuchando…"; $("gMic").disabled=true;
+  try{
+    const t=await __native(id=>Android.dictar(id,"Objetivo para "+dayLabel(gDate).toLowerCase()));
+    const parts=t.split(/\s*(?:,|\by despu[eé]s\b|\botro objetivo\b)\s*/i).filter(x=>x.trim());
+    let n=0; parts.forEach(x=>{ if(addGoal(gDate,x)) n++; });
+    if(n){ saveGoals(); renderGoals(); $("gMsg").textContent=n>1?`Agregué ${n} objetivos.`:"Agregado: "+goals[gDate][goals[gDate].length-1].t; }
+    else $("gMsg").textContent="No entendí, probá de nuevo.";
+  }catch(e){ $("gMsg").textContent=(e&&e.message)||"No pude escuchar."; }
+  finally{ $("gMic").disabled=false; if(sb) setTimeout(()=>Android.setStandby(true),800); setTimeout(()=>{ $("gMsg").textContent=""; },5000); }
+};
 $("gMove").onclick=()=>{ const list=goals[gDate]||[], next=shiftDay(gDate,1); const pend=list.filter(g=>!g.hecho);
   pend.forEach(g=>addGoal(next,g.t)); goals[gDate]=list.filter(g=>g.hecho); if(!goals[gDate].length) delete goals[gDate];
   saveGoals(); gDate=next; renderGoals(); setStatus(`Pasé ${pend.length} objetivo${pend.length>1?"s":""} a ${dayLabel(next).toLowerCase()}.`); };

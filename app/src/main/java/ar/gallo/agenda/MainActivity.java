@@ -18,6 +18,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.AlarmClock;
+import android.speech.RecognizerIntent;
+import java.util.ArrayList;
 import android.provider.CalendarContract;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
@@ -198,6 +200,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static final int REQ_DICTAR = 4711;
+    private int dictId = 0;
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_DICTAR) return;
+        int id = dictId; dictId = 0;
+        if (id == 0) return;
+        if (res == RESULT_OK && data != null) {
+            ArrayList<String> r = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+            if (r != null && !r.isEmpty()) { callback(id, true, r.get(0)); return; }
+        }
+        callback(id, false, "No escuché nada. Tocá el micrófono y hablá de nuevo.");
+    }
+
     private void callback(final int id, final boolean ok, final String text) {
         final String js = "window.__askDone(" + id + "," + ok + "," + JSONObject.quote(text == null ? "" : text) + ")";
         runOnUiThread(() -> web.evaluateJavascript(js, null));
@@ -295,6 +313,20 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public int version() { return myVersion(); }
+
+        /** Dictado corto con el cartel de voz de Android (para objetivos). */
+        @JavascriptInterface public void dictar(final int id, final String prompt) {
+            runOnUiThread(() -> {
+                if (dictId != 0) callback(dictId, false, "Se canceló el dictado anterior.");
+                dictId = id;
+                Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-AR");
+                i.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
+                try { startActivityForResult(i, REQ_DICTAR); }
+                catch (ActivityNotFoundException e) { dictId = 0; callback(id, false, "Este celular no tiene el dictado de Google. Escribilo con el teclado (el micrófono del teclado también sirve)."); }
+            });
+        }
 
         /** Alarma real del reloj del celular: temporizador si falta menos de una hora, alarma si falta más. */
         @JavascriptInterface public boolean alarm(String label, int seconds, int hour, int minute) {
