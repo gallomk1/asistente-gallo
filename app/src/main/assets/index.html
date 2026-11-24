@@ -142,7 +142,7 @@ body{margin:0}
     <h2>Ajustes</h2>
     <p class="hint" style="margin:0;color:var(--muted);font-size:.85rem"><b>Sin clave funciona en modo gratis</b>: entiende frases como "en 10 minutos", "mañana a las 5" o "en Corrientes 1234" y pone alarmas, pero no razona como la IA. Opcional: la app puede usar tu clave de la API de Claude (la sacás en console.anthropic.com, sección API Keys). Queda guardada solo en este celular.</p>
     <input id="apiKey" type="password" autocomplete="off" placeholder="Pegá tu clave acá (empieza con sk-ant-)" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:10px">
-    <div class="row"><button class="btn small" id="saveKey" type="button">Guardar clave</button><span class="count" id="keyMsg"></span></div>
+    <div class="row"><button class="btn small" id="saveKey" type="button">Guardar clave</button><button class="btn small" id="delKey" type="button">Borrar clave</button><span class="count" id="keyMsg"></span></div>
     <div class="row"><span class="count" id="verTxt"></span><button class="btn small" id="checkUpd" type="button">Buscar actualización</button><span class="count" id="checkMsg"></span></div>
   </section>
 </div>
@@ -293,7 +293,12 @@ TEXTO:
     for(const c of list) await addItem(c);
     setStatus(list.length ? `Apunté ${list.length} compromiso${list.length>1?"s":""}.` : "No encontré compromisos.");
     if(list.length){ $("transcript").value=""; saveDraft(); }
-  }catch(e){ setErr("No pude revisar el texto: "+((e&&e.message)||"error desconocido")); }
+  }catch(e){
+    const list=localExtract(text);
+    for(const c of list) await addItem(c);
+    if(list.length){ $("transcript").value=""; saveDraft(); }
+    setErr("La IA no respondió ("+((e&&e.message)||"error desconocido")+"). Lo anoté en modo gratis: "+list.length+" compromiso"+(list.length===1?"":"s")+".");
+  }
   finally{ extracting=false; busy--; $("extractBtn").disabled=false; setTimeout(idle,3000); }
 }
 
@@ -544,6 +549,7 @@ for(const id of ["lSolo","lJuntos","lYo"]) $(id).querySelectorAll(".card").forEa
   });
   setTimeout(()=>checkUpd(false),1500);
   $("keyMsg").textContent = Android.hasKey() ? "Clave cargada" : "Todavía no cargaste tu clave";
+  $("delKey").addEventListener("click",()=>{ Android.setKey(""); $("keyMsg").textContent="Clave borrada: modo gratis"; });
   $("saveKey").addEventListener("click",()=>{ const k=$("apiKey").value.trim(); if(!k){ $("keyMsg").textContent="Pegá la clave primero"; return; } Android.setKey(k); $("apiKey").value=""; $("keyMsg").textContent="Clave guardada"; });
   })();
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && listening) keepAwake(true); });
