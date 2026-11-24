@@ -6,5 +6,5 @@ App de Android que escucha mientras manejás (o cuando decís la palabra clave),
 - `app/src/main/java/.../MainActivity.java`: pantalla, llamada a la API de Claude y actualizaciones.
 - `app/src/main/assets/index.html`: la interfaz.
 
-Las versiones se publican como *Releases* con el tag `v<versionCode>`; la app busca la última y ofrece actualizar.
+Para publicar una versión: subir el APK a `update/AsistenteGallo.apk` y subir `versionCode` en `update/version.json`. La app lo lee al abrir y ofrece actualizar.
 La clave de Claude y los compromisos quedan solo en el celular.

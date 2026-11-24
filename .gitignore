@@ -6,4 +6,5 @@ keystore.properties
 *.keystore
 *.jks
 *.apk
+!update/*.apk
 app.png

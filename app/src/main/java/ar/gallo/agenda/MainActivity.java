@@ -96,8 +96,7 @@ public class MainActivity extends Activity {
     private String httpGet(String url) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(15000); c.setReadTimeout(30000);
-        c.setRequestProperty("Accept", "application/vnd.github+json");
-        int code = c.getResponseCode();
+                int code = c.getResponseCode();
         if (code == 404) throw new UserError("Todavía no hay versiones publicadas.");
         if (code >= 400) throw new UserError("No pude consultar las actualizaciones (" + code + ").");
         InputStream is = c.getInputStream();
@@ -108,30 +107,25 @@ public class MainActivity extends Activity {
         return bo.toString("UTF-8");
     }
 
-    /** Busca la última versión publicada en GitHub. Devuelve JSON para la pantalla. */
+    static final String UPDATE_BASE = "https://raw.githubusercontent.com/" + UPDATE_REPO + "/main/update/";
+
+    /** Lee update/version.json del repositorio y dice si hay una versión más nueva. */
     private JSONObject checkUpdate() throws Exception {
-        JSONObject r = new JSONObject(httpGet("https://api.github.com/repos/" + UPDATE_REPO + "/releases/latest"));
-        String tag = r.optString("tag_name", "");
-        int remote = 0;
-        try { remote = Integer.parseInt(tag.replaceAll("[^0-9]", "")); } catch (Exception ignored) { }
-        String apk = null;
-        JSONArray assets = r.optJSONArray("assets");
-        if (assets != null) for (int i = 0; i < assets.length(); i++) {
-            JSONObject a = assets.getJSONObject(i);
-            if (a.optString("name").endsWith(".apk")) { apk = a.optString("browser_download_url"); break; }
-        }
+        JSONObject r = new JSONObject(httpGet(UPDATE_BASE + "version.json?t=" + System.currentTimeMillis()));
+        int remote = r.optInt("versionCode", 0);
+        String apk = r.optString("apk", "");
         JSONObject out = new JSONObject();
         out.put("current", myVersion());
         out.put("remote", remote);
-        out.put("name", r.optString("name", tag));
-        out.put("notes", r.optString("body", ""));
-        out.put("url", apk == null ? "" : apk);
-        out.put("available", apk != null && remote > myVersion());
+        out.put("name", r.optString("name", ""));
+        out.put("notes", r.optString("notes", ""));
+        out.put("url", apk.isEmpty() ? "" : UPDATE_BASE + apk);
+        out.put("available", !apk.isEmpty() && remote > myVersion());
         return out;
     }
 
     private void downloadAndInstall(String url) throws Exception {
-        if (!url.startsWith("https://github.com/" + UPDATE_REPO + "/")) throw new UserError("La dirección de la actualización no es la esperada.");
+        if (!url.startsWith(UPDATE_BASE) || url.contains("..")) throw new UserError("La dirección de la actualización no es la esperada.");
         File f = new File(getCacheDir(), "update.apk");
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setInstanceFollowRedirects(true);
