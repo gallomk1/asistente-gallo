@@ -38,7 +38,16 @@ h2{font-family:var(--display);font-weight:700;font-size:1rem;margin:0;display:fl
 .drive{border:none;border-radius:16px;background:var(--fg);color:var(--bg);font-family:var(--display);font-weight:800;font-size:1.35rem;padding:22px 14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center}
 .drive small{font-family:var(--body);font-weight:500;font-size:.82rem;opacity:.75}
 .drive.on{background:var(--live);color:#fff}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.stat:active{border-color:var(--accent)}
+.stat em{display:block;font-style:normal;color:var(--accent);font-size:.72rem;font-weight:700;margin-top:6px}
+.sheet{position:fixed;inset:0;background:var(--bg);z-index:50;overflow:auto;padding:16px;box-sizing:border-box;display:none}
+.sheet.open{display:block}
+.sheet header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.sheet h2{margin:0;font-family:var(--display);font-size:1.3rem}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tabs .btn[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.grp{color:var(--muted);font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px}
 .stat b{display:block;font-family:var(--display);font-size:1.7rem;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
 .stat span{color:var(--muted);font-size:.78rem}
 .bar{height:4px;background:var(--line);border-radius:4px;margin-top:8px;overflow:hidden}
@@ -76,6 +85,15 @@ details summary{cursor:pointer;color:var(--muted);font-size:.85rem}
 body{margin:0}
 </style></head><body>
 
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="shTitle">
+  <header><h2 id="shTitle">Compromisos</h2><button type="button" class="btn" id="shClose">‹ Volver</button></header>
+  <div class="tabs" id="shTabs">
+    <button type="button" class="btn small" data-v="pend">Pendientes</button>
+    <button type="button" class="btn small" data-v="hechos">Cumplidos</button>
+    <button type="button" class="btn small" data-v="todos">Todos</button>
+  </div>
+  <div id="shList" style="display:flex;flex-direction:column;gap:8px"></div>
+</div>
 <div class="wrap">
   <header>
     <div>
@@ -93,9 +111,9 @@ body{margin:0}
 
   <div class="top">
     <button class="drive" id="driveBtn" type="button"><span id="driveLabel">Empezar a anotar</span><small id="driveHint">Podés apagar la pantalla</small></button>
-    <div class="stat"><b id="sPend">0</b><span>compromisos pendientes</span></div>
-    <div class="stat"><b id="sWeek">0</b><span>cumplidos esta semana</span></div>
-    <div class="stat"><b id="sPct">0 %</b><span>de la lista ya resuelta</span><div class="bar"><i id="sBar"></i></div></div>
+    <button type="button" class="stat" data-view="pend"><b id="sPend">0</b><span>compromisos pendientes</span><em>Ver ›</em></button>
+    <button type="button" class="stat" data-view="hechos"><b id="sWeek">0</b><span>cumplidos esta semana</span><em>Ver ›</em></button>
+    <button type="button" class="stat" data-view="todos"><b id="sPct">0 %</b><span>de la lista ya resuelta</span><div class="bar"><i id="sBar"></i></div><em>Ver todo ›</em></button>
   </div>
 
   <section class="panel" id="wakeBox">
@@ -499,7 +517,39 @@ function render(){
   const week=items.filter(i=>i.hecho && (i.hechoEn||0)>weekAgo).length;
   const pct=items.length?Math.round(100*(items.length-pend)/items.length):0;
   $("sPend").textContent=pend; $("sWeek").textContent=week; $("sPct").textContent=pct+" %"; $("sBar").style.width=pct+"%";
+  renderSheet();
 }
+
+// Vista de compromisos (al tocar los números de arriba)
+let view=null;
+const VIEWS={pend:"Compromisos pendientes",hechos:"Cumplidos",todos:"Todos los compromisos"};
+function dayKey(it){ if(!it.fecha) return "Sin fecha"; const t=new Date(); const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  const hoy=iso(t), man=iso(new Date(t.getFullYear(),t.getMonth(),t.getDate()+1));
+  if(it.fecha<hoy) return "Atrasados"; if(it.fecha===hoy) return "Hoy"; if(it.fecha===man) return "Mañana";
+  const [y,m,d]=it.fecha.split("-").map(Number);
+  const s=new Intl.DateTimeFormat("es-AR",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"}).format(new Date(Date.UTC(y,m-1,d)));
+  return s.charAt(0).toUpperCase()+s.slice(1); }
+function renderSheet(){
+  if(!view) return;
+  $("shTitle").textContent=VIEWS[view];
+  $("shTabs").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.v===view));
+  let list=items.filter(i=> view==="pend"?!i.hecho : view==="hechos"?i.hecho : true);
+  const box=$("shList"); box.replaceChildren();
+  if(!list.length){ box.append(el("div","empty",view==="pend"?"No tenés compromisos pendientes.":view==="hechos"?"Todavía no marcaste ninguno como cumplido.":"La lista está vacía.")); return; }
+  if(view==="hechos"){ list.sort((a,b)=>(b.hechoEn||0)-(a.hechoEn||0)); list.forEach(i=>box.append(card(i))); return; }
+  list.sort((a,b)=>(a.hecho-b.hecho)||((a.fecha||"9999")+(a.hora||"99")).localeCompare((b.fecha||"9999")+(b.hora||"99"))||b.creado-a.creado);
+  let last=null;
+  for(const i of list){ const k=dayKey(i); if(k!==last){ box.append(el("div","grp",k)); last=k; } box.append(card(i)); }
+}
+function openView(v){
+  const was=!!view; view=v; $("sheet").classList.add("open"); document.body.style.overflow="hidden";
+  if(!was) history.pushState({sheet:1},""); renderSheet(); $("sheet").scrollTop=0;
+}
+function closeView(){ view=null; $("sheet").classList.remove("open"); document.body.style.overflow=""; }
+document.querySelectorAll(".stat[data-view]").forEach(b=>b.onclick=()=>openView(b.dataset.view));
+$("shTabs").querySelectorAll("button").forEach(b=>b.onclick=()=>openView(b.dataset.v));
+$("shClose").onclick=()=>{ if(history.state&&history.state.sheet) history.back(); else closeView(); };
+window.addEventListener("popstate",()=>{ if(view) closeView(); });
 
 async function update(it,patch){
   if(col){ try{ await col.doc(it.id).update(patch); }catch(e){ setErr("No pude guardar el cambio."); } }
