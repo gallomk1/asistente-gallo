@@ -71,6 +71,12 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(new Bridge(), "Android");
         setContentView(web);
         web.loadUrl("file:///android_asset/index.html");
+        try { UpdateJob.schedule(this); } catch (Exception ignored) { }
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                && !prefs().getBoolean("pidioNotif", false)) {
+            prefs().edit().putBoolean("pidioNotif", true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 12);
+        }
     }
 
     @Override
